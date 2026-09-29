@@ -255,27 +255,37 @@
       const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
       if (validDate(y, mo, d)) return { date: toISO(y, mo, d), rest: line.replace(m[0], ' ') };
     }
+    // 앞에 숫자·쉼표가 없는 09/28 같은 날짜. (오래된 iOS 사파리가 정규식 lookbehind 를 못 읽어서
+    // 앞 글자를 그룹으로 잡고 되돌려 놓는다)
+    let keep = '';
     m = line.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
-    if (!m) m = line.match(/(?<![\d,])(\d{1,2})[/.\-](\d{1,2})(?![\d,])/);
+    if (!m) {
+      const mm = line.match(/(^|[^\d,])(\d{1,2})[/.\-](\d{1,2})(?![\d,])/);
+      if (mm) {
+        keep = mm[1];
+        m = [mm[0], mm[2], mm[3]];
+      }
+    }
     if (m) {
       const [mo, d] = [Number(m[1]), Number(m[2])];
       const y = inferYear(mo, d, refISO);
-      if (validDate(y, mo, d)) return { date: toISO(y, mo, d), rest: line.replace(m[0], ' ') };
+      if (validDate(y, mo, d)) return { date: toISO(y, mo, d), rest: line.replace(m[0], `${keep} `) };
     }
     return { date: null, rest: line };
   }
 
   function extractAmount(line) {
+    // [정규식, 금액 그룹, 되돌려 놓을 앞 글자 그룹]
     const patterns = [
-      /(-?\d[\d,]*)\s*원/, // 12,000원
-      /(-?\d{1,3}(?:,\d{3})+)(?![\d])/, // 12,000
-      /(?<![\d])(-?\d{3,})(?![\d])/, // 12000
+      [/(-?\d[\d,]*)\s*원/, 1, 0], // 12,000원
+      [/(-?\d{1,3}(?:,\d{3})+)(?!\d)/, 1, 0], // 12,000
+      [/(^|\D)(-?\d{3,})(?!\d)/, 2, 1], // 12000
     ];
-    for (const p of patterns) {
+    for (const [p, g, k] of patterns) {
       const m = line.match(p);
       if (m) {
-        const n = Number(m[1].replace(/,/g, ''));
-        if (Number.isFinite(n) && n !== 0) return { amount: n, rest: line.replace(m[0], ' ') };
+        const n = Number(m[g].replace(/,/g, ''));
+        if (Number.isFinite(n) && n !== 0) return { amount: n, rest: line.replace(m[0], `${k ? m[k] : ''} `) };
       }
     }
     return { amount: null, rest: line };

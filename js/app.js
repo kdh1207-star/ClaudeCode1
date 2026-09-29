@@ -645,7 +645,7 @@
     }
 
     const tr = L.trend(S(), currentPeriod, 6);
-    const data = tr.map((x) => ({ label: periodLabel(x.period), income: x.budgetIncome ?? x.incomeReceived, spent: x.spent }));
+    const data = tr.map((x) => ({ label: periodLabel(x.period), income: x.budgetIncome !== null ? x.budgetIncome : x.incomeReceived, spent: x.spent }));
     const trendEl = $('#report-trend');
     trendEl.innerHTML = `
       <div class="legend"><span><span class="dot" style="background:var(--s1)"></span>수입</span><span><span class="dot" style="background:var(--s2)"></span>지출</span></div>
@@ -1259,6 +1259,7 @@
   }
 
   async function start() {
+    window.__budgetStarted = true;
     bindEvents();
     const toMigrate = store.takeMigration();
     try {

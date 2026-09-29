@@ -13,6 +13,7 @@ function fakeSheet(name) {
     name,
     rows,
     getLastRow: () => rows.length,
+    getLastColumn: () => Math.max(0, ...rows.map((r) => r.length)),
     getRange(a, b, nr, nc) {
       if (typeof a === 'string') return { setNumberFormat() {} };
       return {
@@ -87,6 +88,7 @@ function makeEnv({ props = {}, claude } = {}) {
   return { ctx, sheets, requests, properties, api, sms };
 }
 
+const msg = (o) => ({ kind: 'expense', is_cancel: false, to_savings: false, date: '2026-09-29', amount: 0, merchant: '', account_last4: '', balance: -1, categoryId: 'none', ...o });
 const SMS = '[Web발신]\n신한카드(1234)승인\n홍*동\n12,000원(일시불)\n09/28 13:45\n김밥천국 역삼점\n누적1,234,567원';
 
 test('키가 틀리면 거부한다', () => {
@@ -105,7 +107,7 @@ test('웹앱 화면에 서버 설정을 넣어 준다', () => {
 test('카드 문자 → Claude 가 읽고 분류해서 시트에 기록', () => {
   const env = makeEnv({
     props: { ANTHROPIC_API_KEY: 'sk-test' },
-    claude: () => ({ is_expense: true, is_cancel: false, date: '2026-09-28', amount: 12000, merchant: '김밥천국 역삼점', categoryId: 'c-food' }),
+    claude: () => msg({ date: '2026-09-28', amount: 12000, merchant: '김밥천국 역삼점', categoryId: 'c-food' }),
   });
   const r = env.sms(SMS);
   assert.equal(r.saved, true);
@@ -121,12 +123,13 @@ test('카드 문자 → Claude 가 읽고 분류해서 시트에 기록', () => 
   assert.equal(req.body.output_config.format.type, 'json_schema');
   assert.equal(req.body.fallbacks, 'default');
   assert.equal(req.headers['anthropic-beta'], 'server-side-fallback-2026-07-01');
-  assert.match(JSON.parse(req.body.messages[0].content).sms, /김밥천국/);
+  assert.match(JSON.parse(req.body.messages[0].content).message, /김밥천국/);
 
   // 시트에 기록됨
   const rows = env.sheets['지출'].rows;
   assert.equal(rows.length, 2);
   assert.deepEqual(rows[1].slice(1, 8), ['2026-09-28', 12000, '김밥천국 역삼점', 'c-food', '식비', 'ai', 'sms']);
+  assert.deepEqual(rows[1].slice(11), ['expense', '']);
 
   // 같은 문자가 또 오면 중복으로 무시
   assert.equal(env.sms(SMS).reason, 'duplicate');
@@ -135,9 +138,9 @@ test('카드 문자 → Claude 가 읽고 분류해서 시트에 기록', () => 
 test('Haiku 로 바꾸면 effort·fallbacks 를 보내지 않는다', () => {
   const env = makeEnv({
     props: { ANTHROPIC_API_KEY: 'sk', CLAUDE_MODEL: 'claude-haiku-4-5' },
-    claude: () => ({ is_expense: false, is_cancel: false, date: '', amount: 0, merchant: '', categoryId: 'none' }),
+    claude: () => msg({ kind: 'not_transaction', amount: 0, categoryId: 'none' }),
   });
-  assert.equal(env.sms('광고 문자 10,000원 할인 결제').reason, 'not_expense');
+  assert.equal(env.sms('광고 문자 10,000원 할인 결제').reason, 'not_transaction');
   const body = env.requests[0].body;
   assert.equal(body.model, 'claude-haiku-4-5');
   assert.equal(body.output_config.effort, undefined);
@@ -165,7 +168,7 @@ test('API 키가 없거나 AI 호출이 실패하면 규칙으로 읽고 키워�
 test('직접 분류해 둔 가맹점은 AI 결과보다 우선', () => {
   const env = makeEnv({
     props: { ANTHROPIC_API_KEY: 'sk' },
-    claude: () => ({ is_expense: true, is_cancel: false, date: '2026-09-28', amount: 12000, merchant: '김밥천국 역삼점', categoryId: 'c-food' }),
+    claude: () => msg({ date: '2026-09-28', amount: 12000, merchant: '김밥천국 역삼점', categoryId: 'c-food' }),
   });
   const meta = env.api('load').state;
   meta.merchantMap['김밥천국역삼점'] = 'c-fun';
@@ -237,4 +240,57 @@ test('계획이 바뀌면 그 기간 지출을 새 항목 기준으로 다시 �
   const all = env.api('load').state.transactions;
   assert.equal(all.find((t) => t.memo === '지난달 카페').categoryId, 'c-cafe'); // 지난 기간은 그대로
   assert.equal(env.sheets['지출'].rows.find((row) => row[3] === '메가커피')[5], '간식');
+});
+
+test('은행 앱 알림: 계좌를 찾아 잔액을 갱신하고, 화면의 오래된 설정이 덮어쓰지 않는다', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk' },
+    claude: () => msg({ amount: 500000, merchant: '김철수', account_last4: '9012', balance: 1234000, categoryId: 'none' }),
+  });
+  const meta = env.api('load').state;
+  delete meta.transactions;
+  meta.settings.myName = '홍길동';
+  meta.accounts = [{ id: 'kb', name: '국민 주거래', type: 'bank', last4: '9012', balance: 2000000, balanceAt: '2026-09-01T00:00:00.000Z' }];
+  env.api('saveMeta', { meta });
+
+  const r = JSON.parse(env.ctx.doPost({ parameter: { action: 'sms', key: 'secret', source: 'bank' }, postData: { contents: '[KB국민] 123456-**-789012 출금 500,000원 김철수 잔액 1,234,000원' } }).text);
+  assert.equal(r.saved, true);
+  assert.deepEqual([r.tx.kind, r.tx.accountId, r.tx.source, r.tx.categoryId], ['expense', 'kb', 'bank', null]);
+  const body = JSON.parse(env.requests[0].body.messages[0].content);
+  assert.equal(body.my_name, '홍길동');
+  assert.equal(body.accounts[0].last4, '9012');
+
+  let acc = env.api('load').state.accounts[0];
+  assert.equal(acc.balance, 1234000);
+
+  // 화면이 예전 잔액이 담긴 설정을 저장해도 알림으로 갱신된 잔액은 유지
+  env.api('saveMeta', { meta });
+  acc = env.api('load').state.accounts[0];
+  assert.equal(acc.balance, 1234000);
+  // 사용자가 잔액을 직접 고치면(더 최근 시각) 그 값이 저장
+  meta.accounts[0].balance = 999;
+  meta.accounts[0].balanceAt = '2999-01-01T00:00:00.000Z';
+  env.api('saveMeta', { meta });
+  assert.equal(env.api('load').state.accounts[0].balance, 999);
+});
+
+test('입금·내 계좌 이체는 지출 분류·재분류 대상이 아니다', () => {
+  let n = 0;
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk' },
+    claude: (body) => {
+      n += 1;
+      const input = JSON.parse(body.messages[0].content);
+      if (input.message) return msg({ kind: n === 1 ? 'income' : 'own_transfer', amount: 3000000, merchant: n === 1 ? '(주)회사' : '홍길동', categoryId: 'c-food' });
+      return { results: input.expenses.map((e, i) => ({ index: i, categoryId: 'c-shop' })) };
+    },
+  });
+  assert.equal(env.sms('[KB국민] 입금 3,000,000원 (주)회사').tx.kind, 'income');
+  const t = env.sms('[KB국민] 이체 3,000,000원 홍길동').tx;
+  assert.deepEqual([t.kind, t.categoryId], ['transfer', null]);
+  const added = env.api('addTransactions', { items: [{ date: '2026-09-29', amount: 100, memo: '용돈', kind: 'income', categoryId: '__auto' }] }).added[0];
+  assert.deepEqual([added.kind, added.categoryId], ['income', null]);
+  const r = env.api('reclassify', { start: '2026-09-01', end: '2026-09-30' });
+  assert.equal(r.updated.length, 0);
+  assert.equal(env.sheets['지출'].rows[1][5], '입금');
 });

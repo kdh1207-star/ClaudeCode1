@@ -103,26 +103,43 @@
     return { budgets, fixedTotal, ratioPercentTotal, ratioBaseAmount: base, allocated, unallocated: inc - allocated };
   }
 
+  // 거래 종류: expense(지출, 기본) / income(입금) / transfer(내 계좌끼리 이체 — 지출·수입에서 제외)
+  function kindOf(t) {
+    return t.kind === 'income' || t.kind === 'transfer' ? t.kind : 'expense';
+  }
+
+  function txsInPeriod(state, period) {
+    return state.transactions.filter((t) => t.date >= period.start && t.date <= period.end);
+  }
+
   function summarizePeriod(state, period) {
     const plan = planFor(state, period.key);
     const income = state.incomes[period.key];
     const hasIncome = typeof income === 'number';
     const calc = computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase);
-    const txs = state.transactions.filter((t) => t.date >= period.start && t.date <= period.end);
+    const all = txsInPeriod(state, period);
+    const txs = all.filter((t) => kindOf(t) === 'expense');
     const known = new Set(plan.categories.map((c) => c.id));
 
     const spent = {};
-    for (const c of plan.categories) spent[c.id] = 0;
+    const counts = {};
+    for (const c of plan.categories) {
+      spent[c.id] = 0;
+      counts[c.id] = 0;
+    }
     let unclassified = 0;
     let unclassifiedCount = 0;
     for (const t of txs) {
-      if (t.categoryId && known.has(t.categoryId)) spent[t.categoryId] += t.amount;
-      else {
+      if (t.categoryId && known.has(t.categoryId)) {
+        spent[t.categoryId] += t.amount;
+        counts[t.categoryId] += 1;
+      } else {
         unclassified += t.amount;
         unclassifiedCount += 1;
       }
     }
     const totalSpent = txs.reduce((s, t) => s + t.amount, 0);
+    const incomeReceived = all.filter((t) => kindOf(t) === 'income').reduce((s, t) => s + t.amount, 0);
 
     const rows = plan.categories.map((c) => {
       const budget = calc.budgets[c.id];
@@ -131,6 +148,7 @@
         category: c,
         budget,
         spent: used,
+        count: counts[c.id],
         remaining: budget - used,
         ratio: budget > 0 ? used / budget : used > 0 ? Infinity : 0,
       };
@@ -152,8 +170,10 @@
       unclassified,
       unclassifiedCount,
       totalSpent,
+      incomeReceived,
       remaining: (hasIncome ? income : 0) - totalSpent,
       transactions: txs,
+      allTransactions: all,
     };
   }
 
@@ -308,22 +328,71 @@
     );
   }
 
-  // ---------- 카드 문자(SMS) ----------
+  // ---------- 결제·입출금 알림 (카드 문자, 은행 앱 알림) ----------
 
-  // 결제 알림처럼 보이는 문자인지 (인증번호, 입금 알림 등은 제외)
-  function looksLikePaymentSms(text) {
+  // 거래 알림처럼 보이는 글인지 (인증번호, 광고 등은 제외)
+  function looksLikeTransaction(text) {
     const t = String(text || '');
     if (!/[\d,]+\s*원/.test(t)) return false;
-    if (/인증\s*번호|인증코드|입금|급여|이자|적립/.test(t) && !/승인|결제|사용/.test(t)) return false;
-    return /승인|결제|사용|취소|출금/.test(t);
+    if (/인증\s*번호|인증코드/.test(t)) return false;
+    return /승인|결제|사용|취소|출금|입금|이체|송금|보냈|받았/.test(t);
   }
 
-  // AI 를 쓸 수 없을 때의 문자 인식. 여러 줄 문자를 한 줄로 합쳐서 읽는다.
-  function parseSmsFallback(text, refISO) {
-    if (!looksLikePaymentSms(text)) return null;
-    const oneLine = String(text).replace(/\r?\n/g, ' ');
+  function digitsOnly(s) {
+    return String(s || '').replace(/\D/g, '');
+  }
+
+  // 알림에 적힌 계좌·카드 번호(가려진 번호 포함)의 끝자리로 등록된 계좌/카드를 찾는다
+  function matchAccount(text, accounts) {
+    const chunks = String(text || '').match(/[\d*][\d*\-]{2,}/g) || [];
+    for (const a of accounts || []) {
+      const last4 = digitsOnly(a.last4).slice(-4);
+      if (last4.length < 3) continue;
+      for (const c of chunks) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(c)) continue; // 날짜
+        if (digitsOnly(c).endsWith(last4)) return a;
+      }
+    }
+    return null;
+  }
+
+  function accountByLast4(last4, accounts) {
+    const d = digitsOnly(last4).slice(-4);
+    if (d.length < 3) return null;
+    return (accounts || []).find((a) => digitsOnly(a.last4).slice(-4) === d) || null;
+  }
+
+  // AI 없이 알림을 읽을 때 거래 종류 추측
+  function detectKind(text, myName) {
+    const t = String(text || '');
+    if (/승인|결제/.test(t)) return 'expense';
+    if (myName && t.includes(myName) && /이체|출금|송금|보냈|입금|받았/.test(t)) return 'transfer';
+    if (/입금|받았/.test(t) && !/출금/.test(t)) return 'income';
+    return 'expense';
+  }
+
+  // AI 를 쓸 수 없을 때의 알림 인식. 여러 줄 알림을 한 줄로 합쳐서 읽는다.
+  // 반환: { date, amount, memo, kind, accountId, balance } 또는 null
+  function parseMessageFallback(text, refISO, opts = {}) {
+    if (!looksLikeTransaction(text)) return null;
+    const balanceMatch = String(text).match(/잔액\s*:?\s*([\d,]+)\s*원?/);
+    const account = matchAccount(text, opts.accounts);
+    const oneLine = String(text)
+      .replace(/\r?\n/g, ' ')
+      .replace(/(?:[\d\-]+\*+|\*+[\d\-]+)[\d*\-]*|\d{3,}-\d{2,}-\d{3,}/g, ' ') // 가려진 번호, 계좌번호
+      .replace(/입금|이체|송금|보냈어요|받았어요|님에게|님이/g, ' ');
     const { items } = parseExpenseText(oneLine, refISO);
-    return items[0] || null;
+    const item = items[0];
+    if (!item) return null;
+    const kind = detectKind(text, opts.myName);
+    return {
+      date: item.date,
+      amount: kind === 'expense' ? item.amount : Math.abs(item.amount),
+      memo: item.memo,
+      kind,
+      accountId: account ? account.id : null,
+      balance: balanceMatch ? Number(balanceMatch[1].replace(/,/g, '')) : null,
+    };
   }
 
   // ---------- 기간별 자산관리계획 ----------
@@ -433,48 +502,159 @@
     return out;
   }
 
-  const SMS_SYSTEM = [
-    '당신은 한국 카드사/은행 결제 알림 문자를 읽어 가계부에 기록하는 도우미입니다.',
-    '문자에서 결제(승인) 날짜, 금액(원), 가맹점 이름을 뽑고, 사용자의 자산관리계획 항목 중 알맞은 항목 id 로 분류하세요.',
-    '- 누적 금액, 잔액, 한도, 카드 끝자리, 승인번호는 결제 금액이 아닙니다.',
+  const MESSAGE_SYSTEM = [
+    '당신은 한국 카드사·은행의 결제/입출금 알림(문자 또는 앱 알림)을 읽어 가계부에 기록하는 도우미입니다.',
+    '알림에서 거래 종류, 날짜, 금액(원), 가맹점 또는 상대방 이름, 잔액을 뽑고, 지출이면 사용자의 자산관리계획 항목 중 알맞은 항목 id 로 분류하세요.',
+    '',
+    'kind 규칙:',
+    '- expense: 카드 결제, 계좌에서 다른 사람·가게로 보낸 출금/이체, 자동이체, 공과금',
+    '- income: 다른 사람이나 회사에서 들어온 입금 (급여, 환급 등)',
+    '- own_transfer: 사용자 본인 계좌끼리 옮긴 돈. 상대방 이름이 사용자 이름(my_name)과 같거나, 알림의 상대 계좌가 사용자의 등록 계좌(accounts)이면 해당합니다.',
+    '- not_transaction: 인증번호, 광고, 안내 등 거래가 아닌 알림',
+    '',
+    '- 본인 계좌로 옮긴 돈이 저축 계좌(isSavings)나 적금·청약·증권 계좌로 들어가는 출금이면 to_savings 를 true 로 하고 categoryId 를 저축 성격의 항목으로 고르세요. 그 밖에는 false.',
+    '- 누적 금액, 한도, 카드·계좌 번호, 승인번호는 거래 금액이 아닙니다. 잔액이 적혀 있으면 balance 에, 없으면 -1.',
+    '- account_last4: 이 알림이 어느 등록 계좌/카드에서 일어난 거래인지 그 끝 4자리. 모르면 빈 문자열.',
     '- 승인취소/환불이면 is_cancel 을 true 로 하세요.',
-    '- 결제 알림이 아닌 문자(인증번호, 광고, 입금 알림 등)는 is_expense 를 false 로 하세요.',
-    '- date 는 YYYY-MM-DD 형식입니다. 문자에 연도가 없으면 오늘 날짜(today)를 기준으로 가장 가까운 과거 날짜로 정하고, 날짜가 없으면 today 를 쓰세요.',
-    '- 알맞은 항목이 없으면 categoryId 를 "none" 으로 하세요.',
+    '- date 는 YYYY-MM-DD. 연도가 없으면 오늘(today) 기준 가장 가까운 과거 날짜, 날짜가 없으면 today.',
+    '- 지출이 아니거나 알맞은 항목이 없으면 categoryId 를 "none" 으로 하세요.',
   ].join('\n');
 
-  function buildSmsRequest(categories, text, todayISO, merchantMap) {
+  function buildMessageRequest(categories, text, todayISO, merchantMap, opts = {}) {
     const ids = categories.map((c) => c.id);
-    const user = JSON.stringify({ today: todayISO, categories: categoryBrief(categories, merchantMap), sms: String(text) });
+    const user = JSON.stringify({
+      today: todayISO,
+      my_name: opts.myName || '',
+      accounts: (opts.accounts || []).map((a) => ({ name: a.name, type: a.type, last4: digitsOnly(a.last4).slice(-4), isSavings: !!a.isSavings })),
+      categories: categoryBrief(categories, merchantMap),
+      message: String(text),
+    });
     const schema = {
       type: 'object',
       properties: {
-        is_expense: { type: 'boolean' },
+        kind: { type: 'string', enum: ['expense', 'income', 'own_transfer', 'not_transaction'] },
         is_cancel: { type: 'boolean' },
+        to_savings: { type: 'boolean' },
         date: { type: 'string' },
         amount: { type: 'integer' },
         merchant: { type: 'string' },
+        account_last4: { type: 'string' },
+        balance: { type: 'integer' },
         categoryId: { type: 'string', enum: ids.concat(['none']) },
       },
-      required: ['is_expense', 'is_cancel', 'date', 'amount', 'merchant', 'categoryId'],
+      required: ['kind', 'is_cancel', 'to_savings', 'date', 'amount', 'merchant', 'account_last4', 'balance', 'categoryId'],
       additionalProperties: false,
     };
-    return { system: SMS_SYSTEM, user, schema };
+    return { system: MESSAGE_SYSTEM, user, schema };
   }
 
-  // AI 응답 → { date, amount, memo, categoryId } 또는 null(지출 아님)
-  function readSmsResponse(json, categories, todayISO) {
-    if (!json || !json.is_expense) return null;
+  // AI 응답 → { date, amount, memo, kind, categoryId, accountId, balance } 또는 null(거래 아님)
+  function readMessageResponse(json, categories, todayISO, accounts) {
+    if (!json || !json.kind || json.kind === 'not_transaction') return null;
     const amountAbs = Math.abs(Math.round(Number(json.amount) || 0));
     if (!amountAbs) return null;
     let date = String(json.date || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = todayISO;
     const known = new Set(categories.map((c) => c.id));
+    const categoryId = known.has(json.categoryId) ? json.categoryId : null;
+    const account = accountByLast4(json.account_last4, accounts);
+
+    let kind = 'expense';
+    if (json.kind === 'income') kind = 'income';
+    else if (json.kind === 'own_transfer' && !json.to_savings) kind = 'transfer';
+
     return {
       date,
-      amount: json.is_cancel ? -amountAbs : amountAbs,
+      amount: kind === 'expense' && json.is_cancel ? -amountAbs : amountAbs,
       memo: String(json.merchant || '').trim() || '(내용 없음)',
-      categoryId: known.has(json.categoryId) ? json.categoryId : null,
+      kind,
+      categoryId: kind === 'expense' ? categoryId : null,
+      accountId: account ? account.id : null,
+      balance: Number.isInteger(json.balance) && json.balance >= 0 ? json.balance : null,
+    };
+  }
+
+  // ---------- 리포트 ----------
+
+  // 항목별 지출 (많이 쓴 순). 색은 계획 안의 순서(colorIndex)로 정해 순위가 바뀌어도 같은 항목은 같은 색.
+  function categoryBreakdown(summary) {
+    const rows = summary.rows.map((r, i) => ({ id: r.category.id, name: r.category.name, amount: r.spent, count: r.count, colorIndex: i }));
+    if (summary.unclassified) rows.push({ id: '__none', name: '미분류', amount: summary.unclassified, count: summary.unclassifiedCount, colorIndex: -1 });
+    const total = rows.reduce((s, r) => s + Math.max(0, r.amount), 0);
+    return rows
+      .filter((r) => r.amount > 0)
+      .map((r) => ({ ...r, share: total ? r.amount / total : 0 }))
+      .sort((a, b) => b.amount - a.amount);
+  }
+
+  // 이번 기간과 직전 기간의 항목별 비교 (이번 기간 계획의 항목 기준, 같은 id 끼리)
+  function compareWithPrevious(state, period) {
+    const cur = summarizePeriod(state, period);
+    const prevPeriod = shiftPeriod(period, -1, state.settings.startDay);
+    const prev = summarizePeriod(state, prevPeriod);
+    const prevSpent = {};
+    for (const r of prev.rows) prevSpent[r.category.id] = r.spent;
+    const rows = cur.rows.map((r) => ({
+      id: r.category.id,
+      name: r.category.name,
+      current: r.spent,
+      previous: prevSpent[r.category.id] || 0,
+      diff: r.spent - (prevSpent[r.category.id] || 0),
+    }));
+    return { current: cur, previous: prev, rows, totalDiff: cur.totalSpent - prev.totalSpent };
+  }
+
+  function topMerchants(txs, n = 5) {
+    const map = {};
+    for (const t of txs) {
+      if (kindOf(t) !== 'expense') continue;
+      const key = normalizeMerchant(t.memo);
+      const m = (map[key] = map[key] || { memo: t.memo, total: 0, count: 0 });
+      m.total += t.amount;
+      m.count += 1;
+    }
+    return Object.values(map).sort((a, b) => b.total - a.total).slice(0, n);
+  }
+
+  // 최근 n 개 기간 (오래된 것부터): 예산으로 입력한 수입, 실제 입금, 지출
+  function trend(state, period, n = 6) {
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const p = shiftPeriod(period, -i, state.settings.startDay);
+      const s = summarizePeriod(state, p);
+      out.push({ period: p, budgetIncome: s.hasIncome ? s.income : null, incomeReceived: s.incomeReceived, spent: s.totalSpent });
+    }
+    return out;
+  }
+
+  // 날짜별 합계: { 'YYYY-MM-DD': { spent, income, count } }
+  function dailyTotals(txs) {
+    const out = {};
+    for (const t of txs) {
+      const d = (out[t.date] = out[t.date] || { spent: 0, income: 0, count: 0 });
+      const k = kindOf(t);
+      if (k === 'expense') d.spent += t.amount;
+      else if (k === 'income') d.income += t.amount;
+      d.count += 1;
+    }
+    return out;
+  }
+
+  // 자산: 계좌 잔액 합계, 카드별 이번 기간 사용액
+  function assetSummary(state, period) {
+    const txs = txsInPeriod(state, period);
+    const banks = state.accounts.filter((a) => a.type !== 'card');
+    const cards = state.accounts.filter((a) => a.type === 'card');
+    const total = banks.reduce((s, a) => s + (typeof a.balance === 'number' ? a.balance : 0), 0);
+    const savings = banks.filter((a) => a.isSavings).reduce((s, a) => s + (typeof a.balance === 'number' ? a.balance : 0), 0);
+    const spendBy = {};
+    for (const t of txs) if (kindOf(t) === 'expense' && t.accountId) spendBy[t.accountId] = (spendBy[t.accountId] || 0) + t.amount;
+    return {
+      total,
+      savings,
+      banks: banks.map((a) => ({ ...a, spent: spendBy[a.id] || 0 })),
+      cards: cards.map((a) => ({ ...a, spent: spendBy[a.id] || 0 })),
+      unlinkedSpent: txs.filter((t) => kindOf(t) === 'expense' && !t.accountId).reduce((s, t) => s + t.amount, 0),
     };
   }
 
@@ -496,8 +676,9 @@
   function defaultState() {
     return {
       version: 2,
-      settings: { startDay: 1 },
+      settings: { startDay: 1, myName: '' },
       plans: [{ from: BASE_PLAN_FROM, ratioBase: 'afterFixed', categories: defaultCategories(), updatedAt: '' }],
+      accounts: [],
       incomes: {},
       transactions: [],
       merchantMap: {},
@@ -528,10 +709,21 @@
       }))
       .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
 
+    const accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).map((a) => ({
+      id: String(a.id),
+      name: String(a.name || ''),
+      type: a.type === 'card' ? 'card' : 'bank',
+      last4: digitsOnly(a.last4).slice(-4),
+      isSavings: !!a.isSavings,
+      balance: typeof a.balance === 'number' ? a.balance : null,
+      balanceAt: String(a.balanceAt || ''),
+    }));
+
     return {
       version: 2,
-      settings: { startDay },
+      settings: { startDay, myName: String(settings.myName || '') },
       plans,
+      accounts,
       incomes: raw.incomes && typeof raw.incomes === 'object' ? raw.incomes : {},
       transactions: Array.isArray(raw.transactions) ? raw.transactions : [],
       merchantMap: raw.merchantMap && typeof raw.merchantMap === 'object' ? raw.merchantMap : {},
@@ -554,8 +746,10 @@
     classify,
     classifyLocal,
     parseExpenseText,
-    looksLikePaymentSms,
-    parseSmsFallback,
+    kindOf,
+    looksLikeTransaction,
+    matchAccount,
+    parseMessageFallback,
     isDuplicate,
     BASE_PLAN_FROM,
     planFor,
@@ -564,8 +758,14 @@
     remapPeriodKeys,
     buildClassifyRequest,
     readClassifyResponse,
-    buildSmsRequest,
-    readSmsResponse,
+    buildMessageRequest,
+    readMessageResponse,
+    categoryBreakdown,
+    compareWithPrevious,
+    topMerchants,
+    trend,
+    dailyTotals,
+    assetSummary,
     defaultState,
     normalizeState,
   };

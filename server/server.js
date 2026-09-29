@@ -1,7 +1,7 @@
 /*
  * 구글 Apps Script 서버.
  * - 구글 시트에 지출 내역(시트 "지출")과 설정(시트 "설정")을 저장한다.
- * - 휴대폰 자동화 앱(MacroDroid)이 보낸 카드 문자를 받아 Claude 로 읽고 분류해서 기록한다.
+ * - 휴대폰 자동화 앱(MacroDroid)이 보낸 카드 문자·은행 앱 알림을 받아 Claude 로 읽고 분류해서 기록한다.
  * - 웹앱 화면(Index.html)을 제공하고, 화면의 요청(api)을 처리한다.
  *
  * 빌드 시 js/logic.js 가 이 파일 앞에 붙어 apps-script/Code.gs 가 된다. (BudgetLogic 사용 가능)
@@ -15,7 +15,7 @@
 var BL = BudgetLogic;
 var TX_SHEET = '지출';
 var META_SHEET = '설정';
-var TX_HEADERS = ['id', 'date', 'amount', 'memo', 'categoryId', 'categoryName', 'method', 'source', 'raw', 'createdAt', 'classifiedAt'];
+var TX_HEADERS = ['id', 'date', 'amount', 'memo', 'categoryId', 'categoryName', 'method', 'source', 'raw', 'createdAt', 'classifiedAt', 'kind', 'accountId'];
 var DEFAULT_MODEL = 'claude-opus-5-5';
 var AI_BATCH = 40;
 
@@ -37,16 +37,16 @@ function doGet(e) {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-// 문자 전송: POST <웹앱 주소>?action=sms&key=<APP_KEY>  (본문 = 문자 내용 그대로)
+// 알림 전송: POST <웹앱 주소>?action=sms&key=<APP_KEY>  (본문 = 문자·알림 내용 그대로, &source=bank 처럼 출처를 붙여도 됨)
 // 화면 요청: POST <웹앱 주소>  (본문 = {"key","action","payload"} JSON)
 function doPost(e) {
   var params = (e && e.parameter) || {};
   var body = (e && e.postData && e.postData.contents) || '';
   var result;
   try {
-    if (params.action === 'sms') {
+    if (params.action === 'sms' || params.action === 'notify') {
       if (!checkKey_(params.key)) throw new Error('unauthorized');
-      result = receiveSms_(body, params.source || 'sms');
+      result = receiveMessage_(body, params.source || 'sms');
     } else {
       result = handleApi_(JSON.parse(body || '{}'));
     }
@@ -68,7 +68,7 @@ function api(req) {
 // 편집기에서 한 번 실행: 시트를 만들고 설정 상태를 알려준다.
 function setup() {
   txSheet_();
-  saveMeta_(loadMeta_());
+  saveMeta_(loadMeta_(), true);
   var props = PropertiesService.getScriptProperties();
   var msg = [
     '시트 준비 완료.',
@@ -119,33 +119,52 @@ function handleApi_(req) {
   }
 }
 
-function receiveSms_(text, source) {
+function receiveMessage_(text, source) {
   text = String(text || '').trim();
   if (!text) return { ok: true, saved: false, reason: 'empty' };
   return withLock_(function () {
     var meta = loadMeta_();
     var today = today_();
-    var period = BL.getPeriod(today, meta.settings.startDay);
-    var cats = BL.planFor(meta, period.key).categories;
+    var cats = BL.planFor(meta, BL.getPeriod(today, meta.settings.startDay).key).categories;
+    var opts = { accounts: meta.accounts, myName: meta.settings.myName };
 
     var parsed = null;
     var method = null;
-    var ai = callClaude_(BL.buildSmsRequest(cats, text, today, meta.merchantMap));
+    var ai = callClaude_(BL.buildMessageRequest(cats, text, today, meta.merchantMap, opts));
     if (ai.ok) {
-      parsed = BL.readSmsResponse(ai.json, cats, today);
-      if (!parsed) return { ok: true, saved: false, reason: 'not_expense' };
+      parsed = BL.readMessageResponse(ai.json, cats, today, meta.accounts);
+      if (!parsed) return { ok: true, saved: false, reason: 'not_transaction' };
       method = parsed.categoryId ? 'ai' : null;
     } else {
-      parsed = BL.parseSmsFallback(text, today);
-      if (!parsed) return { ok: true, saved: false, reason: 'not_expense' };
+      parsed = BL.parseMessageFallback(text, today, opts);
+      if (!parsed) return { ok: true, saved: false, reason: 'not_transaction' };
+      parsed.categoryId = null;
+    }
+    // AI 가 계좌를 못 찾았으면 번호로 한 번 더 찾는다
+    if (!parsed.accountId) {
+      var acc = BL.matchAccount(text, meta.accounts);
+      if (acc) parsed.accountId = acc.id;
     }
 
-    // 사용자가 직접 분류해 둔 가맹점이면 그 항목을 우선한다
-    var planCats = BL.planFor(meta, BL.getPeriod(parsed.date, meta.settings.startDay).key).categories;
-    var local = BL.classifyLocal(parsed.memo, planCats, meta.merchantMap);
-    if (local.method === 'learned' || (!parsed.categoryId && local.categoryId)) {
-      parsed.categoryId = local.categoryId;
-      method = local.method;
+    // 지출이면: 사용자가 직접 분류해 둔 가맹점을 우선하고, AI 결과가 없으면 키워드로
+    if (parsed.kind === 'expense') {
+      var planCats = BL.planFor(meta, BL.getPeriod(parsed.date, meta.settings.startDay).key).categories;
+      var local = BL.classifyLocal(parsed.memo, planCats, meta.merchantMap);
+      if (local.method === 'learned' || (!parsed.categoryId && local.categoryId)) {
+        parsed.categoryId = local.categoryId;
+        method = local.method;
+      }
+    }
+
+    // 알림에 잔액이 있으면 계좌 잔액 갱신
+    if (parsed.accountId && typeof parsed.balance === 'number') {
+      meta.accounts.forEach(function (a) {
+        if (a.id === parsed.accountId) {
+          a.balance = parsed.balance;
+          a.balanceAt = nowISO_();
+        }
+      });
+      saveMeta_(meta, true);
     }
 
     var existing = readTransactions_();
@@ -163,7 +182,9 @@ function addTransactions_(items) {
   var meta = loadMeta_();
   var auto = [];
   items.forEach(function (it, i) {
-    if (it.categoryId === '__auto' || it.categoryId === undefined) auto.push(i);
+    var isExpense = !it.kind || it.kind === 'expense';
+    if (!isExpense) it.categoryId = null;
+    else if (it.categoryId === '__auto' || it.categoryId === undefined) auto.push(i);
   });
   if (auto.length) {
     var res = classifyItems_(auto.map(function (i) { return items[i]; }), meta);
@@ -218,6 +239,7 @@ function reclassify_(start, end, onlyUnclassified) {
   var txs = readTransactions_();
   var targets = txs.filter(function (t) {
     if (t.date < start || t.date > end) return false;
+    if (BL.kindOf(t) !== 'expense') return false;
     var plan = BL.planFor(meta, BL.getPeriod(t.date, meta.settings.startDay).key);
     var exists = plan.categories.some(function (c) { return c.id === t.categoryId; });
     if (onlyUnclassified) return !t.categoryId || !exists;
@@ -240,7 +262,7 @@ function updateTransaction_(id, patch) {
   var txs = readTransactions_();
   var tx = txs.filter(function (t) { return t.id === id; })[0];
   if (!tx) throw new Error('not found: ' + id);
-  ['date', 'amount', 'memo', 'categoryId', 'method'].forEach(function (k) {
+  ['date', 'amount', 'memo', 'categoryId', 'method', 'kind', 'accountId'].forEach(function (k) {
     if (patch[k] !== undefined) tx[k] = patch[k];
   });
   tx.classifiedAt = nowISO_();
@@ -322,6 +344,8 @@ function txSheet_() {
     // 날짜·id 가 시트에서 날짜/숫자로 바뀌지 않도록 일반 텍스트로
     sh.getRange('A:B').setNumberFormat('@');
     sh.getRange('J:K').setNumberFormat('@');
+  } else if (sh.getLastColumn && sh.getLastColumn() < TX_HEADERS.length) {
+    sh.getRange(1, 1, 1, TX_HEADERS.length).setValues([TX_HEADERS]); // 예전 버전 시트에 열 추가
   }
   return sh;
 }
@@ -346,10 +370,21 @@ function loadMeta_() {
   return state;
 }
 
-// 셀 하나에 5만 자까지라 4만 자씩 나눠 저장
-function saveMeta_(meta) {
+// 셀 하나에 5만 자까지라 4만 자씩 나눠 저장.
+// 화면이 오래된 설정을 보내도, 알림으로 더 최근에 갱신된 계좌 잔액은 덮어쓰지 않는다. (fromServer 면 그대로 저장)
+function saveMeta_(meta, fromServer) {
   var clean = BL.normalizeState(meta);
   delete clean.transactions;
+  if (!fromServer) {
+    var current = loadMeta_().accounts;
+    clean.accounts.forEach(function (a) {
+      var cur = current.filter(function (c) { return c.id === a.id; })[0];
+      if (cur && cur.balanceAt > a.balanceAt) {
+        a.balance = cur.balance;
+        a.balanceAt = cur.balanceAt;
+      }
+    });
+  }
   var json = JSON.stringify(clean);
   var chunks = [];
   for (var i = 0; i < json.length; i += 40000) chunks.push([json.slice(i, i + 40000)]);
@@ -387,6 +422,8 @@ function readTransactions_() {
         raw: cellToString_(r[8]),
         createdAt: cellToString_(r[9]),
         classifiedAt: cellToString_(r[10]),
+        kind: cellToString_(r[11]) || 'expense',
+        accountId: cellToString_(r[12]) || null,
       };
     });
 }
@@ -394,7 +431,9 @@ function readTransactions_() {
 function txToRow_(t, meta) {
   var plan = BL.planFor(meta, BL.getPeriod(t.date, meta.settings.startDay).key);
   var cat = plan.categories.filter(function (c) { return c.id === t.categoryId; })[0];
-  return [t.id, t.date, t.amount, t.memo, t.categoryId || '', cat ? cat.name : '미분류', t.method || '', t.source || '', t.raw || '', t.createdAt || '', t.classifiedAt || ''];
+  var kind = BL.kindOf(t);
+  var label = kind === 'income' ? '입금' : kind === 'transfer' ? '내 계좌 이체' : cat ? cat.name : '미분류';
+  return [t.id, t.date, t.amount, t.memo, t.categoryId || '', label, t.method || '', t.source || '', t.raw || '', t.createdAt || '', t.classifiedAt || '', kind, t.accountId || ''];
 }
 
 function appendTxRows_(txs, meta) {
@@ -429,6 +468,8 @@ function newTx_(it, method, source, raw) {
     raw: String(raw || '').slice(0, 1000),
     createdAt: now,
     classifiedAt: now,
+    kind: it.kind === 'income' || it.kind === 'transfer' ? it.kind : 'expense',
+    accountId: it.accountId || null,
   };
 }
 

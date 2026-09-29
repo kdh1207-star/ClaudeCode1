@@ -157,15 +157,24 @@ test('예전(v1) 데이터를 기간별 계획 구조로 옮긴다', () => {
   assert.equal(s.settings.startDay, 25);
 });
 
-test('문자 인식(AI 없이): 여러 줄 카드 문자, 결제 아닌 문자는 무시', () => {
+test('알림 인식(AI 없이): 여러 줄 카드 문자, 거래 아닌 문자는 무시', () => {
   const sms = '[Web발신]\n신한카드(1234)승인\n홍*동\n12,000원(일시불)\n09/28 13:45\n스타벅스 강남점\n누적1,234,567원';
-  assert.deepEqual(
-    (({ date, amount, memo }) => ({ date, amount, memo }))(L.parseSmsFallback(sms, '2026-09-29')),
-    { date: '2026-09-28', amount: 12000, memo: '스타벅스 강남점' }
-  );
-  assert.equal(L.parseSmsFallback('[Web발신] 인증번호 [123456]을 입력하세요', '2026-09-29'), null);
-  assert.equal(L.parseSmsFallback('홍길동님 급여 3,000,000원 입금', '2026-09-29'), null);
-  assert.equal(L.parseSmsFallback('KB국민카드 승인취소 15,000원 쿠팡', '2026-09-29').amount, -15000);
+  const r = L.parseMessageFallback(sms, '2026-09-29');
+  assert.deepEqual([r.date, r.amount, r.memo, r.kind], ['2026-09-28', 12000, '스타벅스 강남점', 'expense']);
+  assert.equal(L.parseMessageFallback('[Web발신] 인증번호 [123456]을 입력하세요', '2026-09-29'), null);
+  assert.equal(L.parseMessageFallback('KB국민카드 승인취소 15,000원 쿠팡', '2026-09-29').amount, -15000);
+});
+
+test('알림 인식(AI 없이): 은행 입출금 알림, 계좌 연결, 잔액, 내 계좌끼리 이체', () => {
+  const accounts = [{ id: 'kb', name: '국민', type: 'bank', last4: '9012' }, { id: 'card', name: '신한카드', type: 'card', last4: '1234' }];
+  const opts = { accounts, myName: '홍길동' };
+  const out = L.parseMessageFallback('[KB국민] 123456-**-789012 09/29 14:02 출금 500,000원 김철수 잔액 1,234,000원', '2026-09-29', opts);
+  assert.deepEqual(out, { date: '2026-09-29', amount: 500000, memo: '김철수', kind: 'expense', accountId: 'kb', balance: 1234000 });
+  const inc = L.parseMessageFallback('[KB국민] ***9012 09/25 입금 3,000,000원 (주)회사 잔액 4,000,000원', '2026-09-29', opts);
+  assert.deepEqual([inc.kind, inc.amount, inc.accountId, inc.balance], ['income', 3000000, 'kb', 4000000]);
+  assert.equal(L.parseMessageFallback('[KB국민] ***9012 이체 300,000원 홍길동 잔액 900,000원', '2026-09-29', opts).kind, 'transfer');
+  assert.equal(L.parseMessageFallback('신한카드(1234)승인 홍길동님 8,000원 김밥천국', '2026-09-29', opts).accountId, 'card');
+  assert.equal(L.matchAccount('2026-09-12 결제 5,000원', [{ id: 'x', last4: '0912' }]), null); // 날짜는 번호로 보지 않음
 });
 
 test('AI 요청: 항목 id 만 고를 수 있고, 직접 분류한 가맹점을 예시로 준다', () => {
@@ -186,13 +195,80 @@ test('AI 요청: 항목 id 만 고를 수 있고, 직접 분류한 가맹점을 
   );
 });
 
-test('AI 문자 응답 읽기', () => {
-  const categories = [{ id: 'food', name: '식비' }];
-  assert.deepEqual(
-    L.readSmsResponse({ is_expense: true, is_cancel: false, date: '2026-09-28', amount: 12000, merchant: '김밥천국', categoryId: 'food' }, categories, '2026-09-29'),
-    { date: '2026-09-28', amount: 12000, memo: '김밥천국', categoryId: 'food' }
-  );
-  assert.equal(L.readSmsResponse({ is_expense: false }, categories, '2026-09-29'), null);
-  const cancel = L.readSmsResponse({ is_expense: true, is_cancel: true, date: '28일', amount: 5000, merchant: '', categoryId: 'none' }, categories, '2026-09-29');
-  assert.deepEqual(cancel, { date: '2026-09-29', amount: -5000, memo: '(내용 없음)', categoryId: null });
+test('AI 알림 응답 읽기: 종류, 계좌, 잔액, 저축 이체', () => {
+  const categories = [{ id: 'food', name: '식비' }, { id: 'save', name: '저축' }];
+  const accounts = [{ id: 'kb', last4: '9012' }];
+  const base = { kind: 'expense', is_cancel: false, to_savings: false, date: '2026-09-28', amount: 12000, merchant: '김밥천국', account_last4: '9012', balance: 88000, categoryId: 'food' };
+  assert.deepEqual(L.readMessageResponse(base, categories, '2026-09-29', accounts), {
+    date: '2026-09-28', amount: 12000, memo: '김밥천국', kind: 'expense', categoryId: 'food', accountId: 'kb', balance: 88000,
+  });
+  assert.equal(L.readMessageResponse({ ...base, kind: 'not_transaction' }, categories, '2026-09-29', accounts), null);
+  const inc = L.readMessageResponse({ ...base, kind: 'income', categoryId: 'food' }, categories, '2026-09-29', accounts);
+  assert.deepEqual([inc.kind, inc.categoryId], ['income', null]);
+  const own = L.readMessageResponse({ ...base, kind: 'own_transfer', categoryId: 'none', balance: -1 }, categories, '2026-09-29', accounts);
+  assert.deepEqual([own.kind, own.categoryId, own.balance], ['transfer', null, null]);
+  const save = L.readMessageResponse({ ...base, kind: 'own_transfer', to_savings: true, categoryId: 'save' }, categories, '2026-09-29', accounts);
+  assert.deepEqual([save.kind, save.categoryId], ['expense', 'save']); // 저축 계좌로 옮긴 돈은 저축 항목 지출
+  const cancel = L.readMessageResponse({ ...base, is_cancel: true, date: '28일', account_last4: '' }, categories, '2026-09-29', accounts);
+  assert.deepEqual([cancel.amount, cancel.date, cancel.accountId], [-12000, '2026-09-29', null]);
 });
+
+test('AI 알림 요청: 등록 계좌와 내 이름을 알려준다', () => {
+  const req = L.buildMessageRequest([{ id: 'food', name: '식비' }], '알림', '2026-09-29', {}, { myName: '홍길동', accounts: [{ name: '적금', type: 'bank', last4: '12-3344', isSavings: true }] });
+  const body = JSON.parse(req.user);
+  assert.equal(body.my_name, '홍길동');
+  assert.deepEqual(body.accounts, [{ name: '적금', type: 'bank', last4: '3344', isSavings: true }]);
+  assert.deepEqual(req.schema.properties.kind.enum, ['expense', 'income', 'own_transfer', 'not_transaction']);
+});
+
+test('집계: 이체는 지출에서 빼고, 입금은 따로 모은다', () => {
+  const state = L.defaultState();
+  state.transactions = [
+    { id: 1, date: '2026-09-02', amount: 10000, memo: '김밥', categoryId: 'c-food' },
+    { id: 2, date: '2026-09-03', amount: 500000, memo: '내 계좌', kind: 'transfer' },
+    { id: 3, date: '2026-09-04', amount: 3000000, memo: '급여', kind: 'income' },
+    { id: 4, date: '2026-09-05', amount: 4000, memo: '김밥', categoryId: 'c-food', kind: 'expense' },
+    { id: 5, date: '2026-08-05', amount: 8000, memo: '지난달 김밥', categoryId: 'c-food' },
+  ];
+  const p = L.getPeriod('2026-09-10', 1);
+  const s = L.summarizePeriod(state, p);
+  assert.equal(s.totalSpent, 14000);
+  assert.equal(s.incomeReceived, 3000000);
+  assert.equal(s.transactions.length, 2);
+  assert.equal(s.allTransactions.length, 4);
+
+  const days = L.dailyTotals(s.allTransactions);
+  assert.deepEqual(days['2026-09-04'], { spent: 0, income: 3000000, count: 1 });
+  assert.deepEqual(days['2026-09-03'], { spent: 0, income: 0, count: 1 });
+
+  assert.deepEqual(L.topMerchants(s.allTransactions), [{ memo: '김밥', total: 14000, count: 2 }]);
+  const cmp = L.compareWithPrevious(state, p);
+  assert.equal(cmp.totalDiff, 6000);
+  assert.deepEqual(cmp.rows.find((r) => r.id === 'c-food'), { id: 'c-food', name: '식비', current: 14000, previous: 8000, diff: 6000 });
+
+  const br = L.categoryBreakdown(s);
+  assert.deepEqual(br.map((r) => [r.id, r.share, r.colorIndex]), [['c-food', 1, 2]]);
+
+  const tr = L.trend(state, p, 2);
+  assert.deepEqual(tr.map((x) => [x.period.key, x.spent, x.incomeReceived]), [['2026-08-01', 8000, 0], ['2026-09-01', 14000, 3000000]]);
+});
+
+test('자산: 계좌 잔액 합계와 카드별 사용액', () => {
+  const state = L.normalizeState({
+    accounts: [
+      { id: 'kb', name: '국민', type: 'bank', last4: '9012', balance: 1000000 },
+      { id: 'sv', name: '적금', type: 'bank', last4: '3344', isSavings: true, balance: 5000000 },
+      { id: 'cd', name: '신한카드', type: 'card', last4: '1234' },
+    ],
+    transactions: [
+      { id: 1, date: '2026-09-02', amount: 10000, memo: 'a', accountId: 'cd' },
+      { id: 2, date: '2026-09-03', amount: 7000, memo: 'b' },
+    ],
+  });
+  const a = L.assetSummary(state, L.getPeriod('2026-09-10', 1));
+  assert.equal(a.total, 6000000);
+  assert.equal(a.savings, 5000000);
+  assert.equal(a.cards[0].spent, 10000);
+  assert.equal(a.unlinkedSpent, 7000);
+});
+

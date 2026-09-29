@@ -1,0 +1,9 @@
+{
+  "name": "budget-planner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "자산관리계획 기반 지출 관리 웹앱",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}

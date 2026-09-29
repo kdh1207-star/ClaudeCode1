@@ -78,7 +78,20 @@ h2 { font-size: 16px; margin: 0 0 8px; }
   border-bottom: 1px solid var(--border);
   padding: 12px 16px 0;
 }
-.app-header h1 { max-width: 880px; margin: 0 auto 8px; }
+.header-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; max-width: 880px; margin: 0 auto 8px; }
+.header-status { display: flex; align-items: center; gap: 6px; }
+.chip { font-size: 12px; border-radius: 999px; padding: 2px 10px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+.chip.on { background: var(--accent-track); color: var(--text); }
+.busy { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 40; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: busy 1s linear infinite; }
+@keyframes busy { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+h3 { font-size: 14px; margin: 16px 0 4px; }
+.note-card { background: var(--surface-2); }
+.note-card p { margin: 4px 0 8px; }
+.warn-card { background: var(--warning-track); border-color: transparent; }
+.copy-row { display: flex; gap: 8px; }
+.copy-row input { flex: 1; font-size: 13px; }
+.cat-cell { display: flex; align-items: center; gap: 6px; }
+.cat-cell select { flex: 1; }
 .tabs { display: flex; gap: 4px; max-width: 880px; margin: 0 auto; overflow-x: auto; }
 .tab {
   border: 0;
@@ -201,20 +214,21 @@ td.memo { min-width: 120px; word-break: break-all; }
 .empty { padding: 24px 0; text-align: center; color: var(--muted); }
 
 /* 계획 편집 */
-.plan-row { display: grid; grid-template-columns: 1.2fr 0.9fr 1fr 2fr auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
+.plan-row { display: grid; grid-template-columns: 1.1fr 1fr 0.9fr 1.5fr 1.5fr auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
 .plan-row.head { border-top: 0; font-size: 13px; color: var(--text-2); padding-top: 0; }
 .plan-row input, .plan-row select { width: 100%; }
 .value-wrap { position: relative; }
 .value-wrap input { padding-right: 28px; text-align: right; }
 .value-wrap .unit { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px; pointer-events: none; }
 .plan-row .preview { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin-top: -4px; }
-@media (max-width: 640px) {
-  .plan-row { grid-template-columns: 1fr 1fr auto; grid-template-areas: "name name del" "type value value" "kw kw kw" "pv pv pv"; }
+@media (max-width: 760px) {
+  .plan-row { grid-template-columns: 1fr 1fr auto; grid-template-areas: "name name del" "type value value" "desc desc desc" "kw kw kw" "pv pv pv"; }
+  .plan-row .pl-desc { grid-area: desc; }
   .plan-row.head { display: none; }
   .plan-row .pl-name { grid-area: name; }
   .plan-row .pl-type { grid-area: type; }
   .plan-row .value-wrap { grid-area: value; }
-  .plan-row .kw { grid-area: kw; }
+  .plan-row .pl-kw { grid-area: kw; }
   .plan-row .pl-del { grid-area: del; }
   .plan-row .preview { grid-area: pv; margin-top: 0; }
 }

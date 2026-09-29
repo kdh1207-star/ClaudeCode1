@@ -1,0 +1,240 @@
+// apps-script/Code.gs 를 구글 서비스 가짜 구현 위에서 실행해 본다.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const CODE = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
+
+function fakeSheet(name) {
+  const rows = [];
+  return {
+    name,
+    rows,
+    getLastRow: () => rows.length,
+    getRange(a, b, nr, nc) {
+      if (typeof a === 'string') return { setNumberFormat() {} };
+      return {
+        getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => (rows[a - 1 + i] || [])[b - 1 + j] ?? '')),
+        setValues(vals) {
+          vals.forEach((r, i) => {
+            const row = rows[a - 1 + i] || (rows[a - 1 + i] = []);
+            r.forEach((v, j) => (row[b - 1 + j] = v));
+          });
+        },
+      };
+    },
+    deleteRow: (r) => rows.splice(r - 1, 1),
+    clearContents: () => rows.splice(0, rows.length),
+    setFrozenRows() {},
+  };
+}
+
+// claude: (body) => 응답 JSON 객체 (content 안의 text 로 넣을 값) 또는 { status, error }
+function makeEnv({ props = {}, claude } = {}) {
+  const sheets = {};
+  const requests = [];
+  const properties = { APP_KEY: 'secret', ...props };
+  let uuid = 0;
+  const ctx = {
+    console,
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ({
+        getSheetByName: (n) => sheets[n] || null,
+        insertSheet: (n) => (sheets[n] = fakeSheet(n)),
+      }),
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (k) => properties[k] ?? null,
+        setProperty: (k, v) => (properties[k] = v),
+      }),
+    },
+    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    Utilities: {
+      getUuid: () => `id-${++uuid}`,
+      formatDate: () => '2026-09-29',
+    },
+    Session: { getScriptTimeZone: () => 'Asia/Seoul' },
+    ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/X/exec' }) },
+    Logger: { log() {} },
+    UrlFetchApp: {
+      fetch(url, opts) {
+        const body = JSON.parse(opts.payload);
+        requests.push({ url, headers: opts.headers, body });
+        const out = claude ? claude(body) : { status: 500, error: 'no fake' };
+        if (out && out.status) {
+          return { getResponseCode: () => out.status, getContentText: () => JSON.stringify({ error: { message: out.error } }) };
+        }
+        const resp = { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify(out) }] };
+        return { getResponseCode: () => 200, getContentText: () => JSON.stringify(resp) };
+      },
+    },
+    ContentService: {
+      MimeType: { JSON: 'json' },
+      createTextOutput: (text) => ({ text, setMimeType() { return this; } }),
+    },
+    HtmlService: {
+      createHtmlOutputFromFile: () => ({ getContent: () => '<script>/*__SERVER_CONFIG__*/</script>' }),
+      createHtmlOutput: (html) => ({ html, setTitle() { return this; }, addMetaTag() { return this; } }),
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(CODE, ctx);
+  const api = (action, payload, key = 'secret') => ctx.api({ key, action, payload });
+  const sms = (text, key = 'secret') => JSON.parse(ctx.doPost({ parameter: { action: 'sms', key }, postData: { contents: text } }).text);
+  return { ctx, sheets, requests, properties, api, sms };
+}
+
+const SMS = '[Web발신]\n신한카드(1234)승인\n홍*동\n12,000원(일시불)\n09/28 13:45\n김밥천국 역삼점\n누적1,234,567원';
+
+test('키가 틀리면 거부한다', () => {
+  const env = makeEnv();
+  assert.deepEqual(JSON.parse(JSON.stringify(env.api('load', {}, 'wrong'))), { ok: false, error: 'unauthorized' });
+  assert.equal(env.sms(SMS, 'wrong').ok, false);
+  assert.match(env.ctx.doGet({ parameter: { key: 'nope' } }).html, /접속 키가 올바르지 않습니다/);
+});
+
+test('웹앱 화면에 서버 설정을 넣어 준다', () => {
+  const env = makeEnv();
+  const out = env.ctx.doGet({ parameter: { key: 'secret' } });
+  assert.match(out.html, /window\.__BUDGET_SERVER__ = \{"key":"secret","url":"https:\/\/script\.google\.com\/macros\/s\/X\/exec"\}/);
+});
+
+test('카드 문자 → Claude 가 읽고 분류해서 시트에 기록', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk-test' },
+    claude: () => ({ is_expense: true, is_cancel: false, date: '2026-09-28', amount: 12000, merchant: '김밥천국 역삼점', categoryId: 'c-food' }),
+  });
+  const r = env.sms(SMS);
+  assert.equal(r.saved, true);
+  assert.equal(r.tx.categoryId, 'c-food');
+  assert.equal(r.tx.method, 'ai');
+
+  // 요청 형식
+  const req = env.requests[0];
+  assert.equal(req.url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(req.headers['x-api-key'], 'sk-test');
+  assert.equal(req.body.model, 'claude-opus-5-5');
+  assert.equal(req.body.output_config.effort, 'low');
+  assert.equal(req.body.output_config.format.type, 'json_schema');
+  assert.equal(req.body.fallbacks, 'default');
+  assert.equal(req.headers['anthropic-beta'], 'server-side-fallback-2026-07-01');
+  assert.match(JSON.parse(req.body.messages[0].content).sms, /김밥천국/);
+
+  // 시트에 기록됨
+  const rows = env.sheets['지출'].rows;
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[1].slice(1, 8), ['2026-09-28', 12000, '김밥천국 역삼점', 'c-food', '식비', 'ai', 'sms']);
+
+  // 같은 문자가 또 오면 중복으로 무시
+  assert.equal(env.sms(SMS).reason, 'duplicate');
+});
+
+test('Haiku 로 바꾸면 effort·fallbacks 를 보내지 않는다', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk', CLAUDE_MODEL: 'claude-haiku-4-5' },
+    claude: () => ({ is_expense: false, is_cancel: false, date: '', amount: 0, merchant: '', categoryId: 'none' }),
+  });
+  assert.equal(env.sms('광고 문자 10,000원 할인 결제').reason, 'not_expense');
+  const body = env.requests[0].body;
+  assert.equal(body.model, 'claude-haiku-4-5');
+  assert.equal(body.output_config.effort, undefined);
+  assert.equal(body.fallbacks, undefined);
+});
+
+test('API 키가 없거나 AI 호출이 실패하면 규칙으로 읽고 키워드로 분류', () => {
+  const noKey = makeEnv();
+  const r = noKey.sms(SMS);
+  assert.equal(r.saved, true);
+  assert.equal(r.tx.amount, 12000);
+  assert.equal(r.tx.memo, '김밥천국 역삼점');
+  assert.equal(r.tx.categoryId, 'c-food'); // '김밥' 키워드
+  assert.equal(r.tx.method, 'keyword');
+  assert.equal(noKey.sms('[Web발신] 인증번호 [482913]').saved, false);
+
+  const failing = makeEnv({ props: { ANTHROPIC_API_KEY: 'sk' }, claude: () => ({ status: 529, error: 'overloaded' }) });
+  const f = failing.sms(SMS);
+  assert.equal(f.saved, true);
+  assert.equal(f.tx.method, 'keyword');
+  assert.match(f.aiError, /529/);
+  assert.match(failing.properties.LAST_AI_ERROR, /overloaded/);
+});
+
+test('직접 분류해 둔 가맹점은 AI 결과보다 우선', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk' },
+    claude: () => ({ is_expense: true, is_cancel: false, date: '2026-09-28', amount: 12000, merchant: '김밥천국 역삼점', categoryId: 'c-food' }),
+  });
+  const meta = env.api('load').state;
+  meta.merchantMap['김밥천국역삼점'] = 'c-fun';
+  env.api('saveMeta', { meta });
+  const r = env.sms(SMS);
+  assert.equal(r.tx.categoryId, 'c-fun');
+  assert.equal(r.tx.method, 'learned');
+});
+
+test('화면에서 추가: 자동 분류는 AI, 직접 고른 항목은 그대로', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk' },
+    claude: (body) => {
+      const n = JSON.parse(body.messages[0].content).expenses.length;
+      return { results: Array.from({ length: n }, (_, i) => ({ index: i, categoryId: 'c-shop' })) };
+    },
+  });
+  const r = env.api('addTransactions', {
+    items: [
+      { date: '2026-09-28', amount: 30000, memo: '동네 문구점', categoryId: '__auto' },
+      { date: '2026-09-28', amount: 5000, memo: '편의점', categoryId: 'c-food', method: 'manual' },
+      { date: '2026-09-28', amount: 7000, memo: '모름', categoryId: null },
+    ],
+  });
+  assert.deepEqual(r.added.map((t) => [t.categoryId, t.method]), [['c-shop', 'ai'], ['c-food', 'manual'], [null, null]]);
+  assert.equal(env.requests.length, 1); // 자동 분류할 1건만 AI 로
+
+  const loaded = env.api('load').state.transactions;
+  assert.equal(loaded.length, 3);
+  const upd = env.api('updateTransaction', { id: loaded[0].id, patch: { categoryId: 'c-fun', method: 'manual' } });
+  assert.equal(upd.tx.categoryId, 'c-fun');
+  env.api('deleteTransaction', { id: loaded[2].id });
+  assert.equal(env.api('load').state.transactions.length, 2);
+});
+
+test('계획이 바뀌면 그 기간 지출을 새 항목 기준으로 다시 분류', () => {
+  let categoriesSeen = null;
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk' },
+    claude: (body) => {
+      const input = JSON.parse(body.messages[0].content);
+      categoriesSeen = input.categories.map((c) => c.id);
+      return { results: input.expenses.map((e, i) => ({ index: i, categoryId: categoriesSeen.includes('c-snack') ? 'c-snack' : 'c-cafe' })) };
+    },
+  });
+  env.api('addTransactions', {
+    items: [
+      { date: '2026-09-10', amount: 4500, memo: '메가커피', categoryId: '__auto' },
+      { date: '2026-09-11', amount: 8000, memo: '편의점', categoryId: 'c-food', method: 'manual' },
+      { date: '2026-08-20', amount: 4000, memo: '지난달 카페', categoryId: '__auto' },
+    ],
+  });
+
+  // 9월 기간부터 '카페/간식' 을 없애고 '간식' 항목을 새로 만든 계획
+  const meta = env.api('load').state;
+  delete meta.transactions;
+  const sepPlan = JSON.parse(JSON.stringify(meta.plans[0]));
+  sepPlan.from = '2026-09-01';
+  sepPlan.updatedAt = new Date().toISOString();
+  sepPlan.categories = sepPlan.categories.filter((c) => c.id !== 'c-cafe');
+  sepPlan.categories.push({ id: 'c-snack', name: '간식', type: 'ratio', value: 5, description: '커피, 디저트', keywords: [] });
+  meta.plans.push(sepPlan);
+  env.api('saveMeta', { meta });
+
+  const r = env.api('reclassify', { start: '2026-09-01', end: '2026-09-30' });
+  assert.deepEqual(r.updated.map((t) => [t.memo, t.categoryId]), [['메가커피', 'c-snack']]); // 직접 고른 편의점은 그대로
+  assert.ok(categoriesSeen.includes('c-snack') && !categoriesSeen.includes('c-cafe'));
+
+  const all = env.api('load').state.transactions;
+  assert.equal(all.find((t) => t.memo === '지난달 카페').categoryId, 'c-cafe'); // 지난 기간은 그대로
+  assert.equal(env.sheets['지출'].rows.find((row) => row[3] === '메가커피')[5], '간식');
+});

@@ -1,13 +1,16 @@
-// index.html 에 css/js 를 모두 넣어 파일 하나로 동작하는 budget-app.html 을 만든다.
-// 휴대폰·태블릿에서 파일 하나만 열어도 디자인과 기능이 깨지지 않게 하기 위함.
-// 사용: node scripts/build-standalone.js
+// 배포용 파일을 만든다.
+//  - budget-app.html        : css/js 를 모두 넣어 파일 하나로 동작하는 앱 (휴대폰·태블릿에서 파일 하나만 열어도 됨)
+//  - apps-script/Code.gs    : 구글 Apps Script 서버 (js/logic.js + server/server.js)
+//  - apps-script/Index.html : Apps Script 가 제공하는 앱 화면 (budget-app.html 과 같음)
+//  - apps-script/appsscript.json
+// 사용: npm run build
 const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
-function build() {
+function buildHtml() {
   let html = read('index.html');
   html = html.replace(/<link rel="stylesheet" href="([^"]+)">/g, (_, href) => `<style>\n${read(href)}</style>`);
   html = html.replace(/<script src="([^"]+)"><\/script>/g, (_, src) => {
@@ -18,9 +21,30 @@ function build() {
   return html;
 }
 
-module.exports = { build };
+function buildCodeGs() {
+  return [
+    '// 자동 생성 파일 (npm run build). 직접 고치지 말고 js/logic.js, server/server.js 를 고치세요.',
+    read('js/logic.js'),
+    read('server/server.js'),
+  ].join('\n');
+}
+
+function outputs() {
+  const html = buildHtml();
+  return {
+    'budget-app.html': html,
+    'apps-script/Index.html': html,
+    'apps-script/Code.gs': buildCodeGs(),
+    'apps-script/appsscript.json': read('server/appsscript.json'),
+  };
+}
+
+module.exports = { buildHtml, buildCodeGs, outputs };
 
 if (require.main === module) {
-  fs.writeFileSync(path.join(root, 'budget-app.html'), build());
-  console.log('budget-app.html 을 만들었습니다.');
+  fs.mkdirSync(path.join(root, 'apps-script'), { recursive: true });
+  for (const [file, content] of Object.entries(outputs())) {
+    fs.writeFileSync(path.join(root, file), content);
+    console.log(`만듦: ${file}`);
+  }
 }

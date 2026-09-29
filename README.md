@@ -4,8 +4,14 @@
 
 ## 실행
 
-빌드나 설치가 필요 없습니다. `index.html` 을 브라우저로 열면 바로 쓸 수 있습니다.
-(GitHub Pages 로 배포하면 휴대폰에서도 주소로 접속해 쓸 수 있습니다.)
+설치가 필요 없습니다. 두 가지 방법 중 편한 것을 쓰세요.
+
+- **`budget-app.html` (파일 하나짜리, 추천)**: 디자인과 기능이 모두 이 파일 하나에 들어 있습니다. 이 파일만 받아서 브라우저로 열면 됩니다. 휴대폰·태블릿에 옮겨도 깨지지 않습니다.
+- **GitHub Pages**: 저장소 Settings → Pages 에서 Branch 를 `main`, 폴더를 `/ (root)` 로 저장하면 `https://kdh1207-star.github.io/ClaudeCode1/` 주소로 어디서나 열 수 있습니다.
+
+> `index.html` 은 `css/`, `js/` 폴더를 옆에 두고 여는 개발용 파일입니다. `index.html` 만 따로 열면 디자인 없이 글자만 보입니다.
+>
+> 휴대폰·태블릿의 파일 앱에서 HTML 을 누르면 "미리보기"로만 열려 버튼이 동작하지 않을 수 있습니다. 이때는 공유 → 크롬/사파리로 열기를 쓰거나 GitHub Pages 주소로 여세요.
 
 데이터는 **이 브라우저의 저장공간(localStorage)에만** 저장되며 서버로 전송되지 않습니다.
 다른 기기로 옮기거나 백업하려면 `자산관리계획 → 데이터` 에서 JSON 으로 내보내기/불러오기를 사용하세요.
@@ -50,12 +56,16 @@
 ## 구조
 
 ```
+budget-app.html 파일 하나로 동작하는 배포용 버전 (npm run build 로 생성)
 index.html      화면
 css/style.css   스타일 (라이트/다크 모드)
 js/logic.js     기간 계산, 예산 배분, 텍스트 인식, 자동 분류 (DOM 없는 순수 로직)
 js/app.js       화면 동작
-tests/          logic.js 테스트
+scripts/        budget-app.html 생성 스크립트
+tests/          테스트
 ```
+
+코드를 고친 뒤에는 `npm run build` 로 `budget-app.html` 을 다시 만들어 주세요. (최신이 아니면 `npm test` 가 실패합니다.)
 
 ## 테스트
 

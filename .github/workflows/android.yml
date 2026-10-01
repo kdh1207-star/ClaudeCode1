@@ -46,8 +46,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete noti-app --yes --cleanup-tag || true
-          gh release create noti-app budget-noti.apk \
-            --title "가계부 알림 앱 (빌드 ${{ github.run_number }})" \
-            --notes "카카오뱅크 등 은행 앱 알림을 가계부(구글 시트)로 보내는 안드로이드 앱입니다. 휴대폰에서 budget-noti.apk 를 받아 설치하세요." \
-            --latest
+          # 릴리스를 지웠다 다시 만들면 그 사이 받던 다운로드가 끊기므로, 있으면 파일만 덮어쓴다
+          if gh release view noti-app > /dev/null 2>&1; then
+            gh release upload noti-app budget-noti.apk --clobber
+            gh release edit noti-app --title "가계부 알림 앱 (빌드 ${{ github.run_number }})" --latest
+          else
+            gh release create noti-app budget-noti.apk \
+              --title "가계부 알림 앱 (빌드 ${{ github.run_number }})" \
+              --notes "카카오뱅크 등 은행 알림(앱 푸시·문자)을 가계부(구글 시트)로 보내는 안드로이드 앱입니다. 휴대폰 크롬에서 budget-noti.apk 를 받아 설치하세요." \
+              --latest
+          fi

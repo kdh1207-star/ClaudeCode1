@@ -1061,6 +1061,15 @@
 
   // ---------- 설정 ----------
 
+  // 알림 연결 앱(안드로이드) 내려받기 주소 (GitHub Actions 가 main 에 올라갈 때마다 갱신)
+  const NOTI_APK_URL = 'https://github.com/kdh1207-star/ClaudeCode1/releases/download/noti-app/budget-noti.apk';
+
+  // 설치된 알림 연결 앱을 열면서 서버 주소를 넘긴다 (크롬 안드로이드의 intent 링크)
+  function connectLink() {
+    const url = encodeURIComponent(notifyUrl('bank'));
+    return `intent://setup?url=${url}#Intent;scheme=budgetnoti;package=com.kdh1207.budgetnoti;S.browser_fallback_url=${encodeURIComponent(NOTI_APK_URL)};end`;
+  }
+
   function notifyUrl(source) {
     return store.serviceUrl ? `${store.serviceUrl}?action=sms&key=${encodeURIComponent(store.server.key)}${source ? `&source=${source}` : ''}` : '';
   }
@@ -1156,13 +1165,19 @@
         </form>
         ${store.aiEnabled ? `<div class="form-grid" style="margin-top:12px"><label class="wide">사용할 모델<select id="ai-model">${(store.aiModels.length ? store.aiModels : [store.aiModel]).map((m) => `<option value="${esc(m)}" ${m === store.aiModel ? 'selected' : ''}>${esc(MODEL_LABEL[m] || m)}</option>`).join('')}</select></label></div>` : ''}
         ${store.aiError ? `<p class="muted small">최근 AI 오류: ${esc(store.aiError)}</p>` : ''}
-        <h3>① 카드 결제 문자</h3>
-        <p class="muted small">MacroDroid 트리거 <b>SMS 수신</b> → 동작 <b>HTTP 요청</b>(POST, 본문 = SMS 메시지)에 이 주소를 넣으세요. 카카오뱅크 체크카드만 쓴다면 ②만 해도 됩니다.</p>
-        <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl(''))}" id="url-sms"><button class="ghost-btn" data-copy="url-sms">복사</button></div>
-        <h3>② 은행 앱 입출금 알림 (카카오뱅크 등)</h3>
-        <p class="muted small">MacroDroid 트리거 <b>알림 수신</b>(카카오뱅크 앱 선택) → 동작 <b>HTTP 요청</b>(POST, 본문 = 알림 제목과 알림 텍스트)에 이 주소를 넣으세요. 계좌·카드에 계좌 끝자리를 등록해 두면 어느 계좌인지 찾고 잔액도 갱신합니다.</p>
+        <h3>카카오뱅크 알림 자동 입력 (안드로이드)</h3>
+        <ol class="steps">
+          <li><a href="${NOTI_APK_URL}" target="_blank" rel="noopener"><b>가계부 알림 연결 앱 받기</b></a> → 받은 <code>budget-noti.apk</code> 를 눌러 설치 (처음이면 "출처를 알 수 없는 앱 설치"를 허용)</li>
+          <li>앱을 설치한 휴대폰에서 이 버튼을 누르세요: <a class="primary-btn small-btn" href="${esc(connectLink())}" target="_blank" rel="noopener">알림 앱 연결</a> <span class="muted">(서버 주소가 앱에 자동으로 들어가요)</span></li>
+          <li>앱 화면에서 <b>알림 접근 허용</b>, <b>배터리 제한 해제</b>, <b>테스트 보내기</b>를 차례로 누르면 끝이에요.</li>
+        </ol>
+        <p class="muted small">버튼이 동작하지 않으면 아래 주소를 복사해 앱의 "서버 주소" 칸에 붙여넣으세요. 계좌·카드에 카카오뱅크 끝 4자리를 등록해 두면 잔액도 갱신돼요.</p>
         <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl('bank'))}" id="url-bank"><button class="ghost-btn" data-copy="url-bank">복사</button></div>
-        <p class="muted small">자세한 설정 방법은 저장소의 <b>SETUP.md</b> 에 있어요.</p>
+        <details class="small">
+          <summary>카드 결제 문자(SMS)도 보내려면 / MacroDroid 로 하려면</summary>
+          <p class="muted">알림 연결 앱의 "알림을 보낼 앱"에서 문자 앱을 켜면 카드 결제 문자도 보내요. ('원'이 들어간 문자만 보내고, 결제가 아닌 문자는 서버가 무시해요.) MacroDroid 같은 다른 자동화 앱을 쓴다면 아래 주소로 POST 하면 돼요.</p>
+          <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl(''))}" id="url-sms"><button class="ghost-btn" data-copy="url-sms">복사</button></div>
+        </details>
         <div class="row-actions">
           ${store.server.embedded ? '<button id="forget-key-btn" class="ghost-btn small-btn">이 기기에서 접속 키 지우기</button>' : '<button id="disconnect-btn" class="danger-btn">연결 해제 (이 기기 저장으로)</button>'}
         </div>`;

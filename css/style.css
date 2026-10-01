@@ -443,3 +443,7 @@ td.memo { min-width: 120px; word-break: break-all; }
 .key-gate { position: fixed; inset: 0; z-index: 70; background: var(--page); display: grid; place-items: center; padding: 16px; }
 .key-card { width: 100%; max-width: 420px; }
 .key-card input { width: 100%; margin-top: 8px; }
+
+.steps a.primary-btn { color: #fff; text-decoration: none; margin: 4px 0; }
+.steps a { color: var(--accent-text); }
+details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }

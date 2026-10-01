@@ -2,6 +2,7 @@ package com.kdh1207.budgetnoti;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.provider.Telephony;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -15,6 +16,11 @@ import java.util.Set;
 /** 앱 설정과 보낼 알림 대기열을 이 휴대폰에만 저장한다. */
 final class Prefs {
     static final String KAKAOBANK = "com.kakaobank.channel";
+    /** 기본 문자 앱을 알 수 없을 때 문자 앱으로 보는 패키지 */
+    private static final String[] SMS_APPS = {
+            "com.samsung.android.messaging", "com.google.android.apps.messaging", "com.android.mms", "com.android.messaging"};
+    /** 문자 앱에서 온 알림은 이 단어 중 하나가 있어야 보낸다 (광고·개인 문자 거르기) */
+    static final String DEFAULT_KEYWORDS = "카카오뱅크, 입금, 출금, 승인, 결제, 이체, 잔액";
 
     private static final String NAME = "budgetnoti";
     private static final String URL = "url";
@@ -23,6 +29,7 @@ final class Prefs {
     private static final String RECENT = "recent";
     private static final String PENDING = "pending";
     private static final String LOG = "log";
+    private static final String KEYWORDS = "keywords";
 
     private static final int MAX_SEEN = 30;
     private static final int MAX_RECENT = 40;
@@ -30,9 +37,48 @@ final class Prefs {
     private static final int MAX_LOG = 30;
 
     private final SharedPreferences sp;
+    private final Context context;
 
     Prefs(Context context) {
-        sp = context.getApplicationContext().getSharedPreferences(NAME, Context.MODE_PRIVATE);
+        this.context = context.getApplicationContext();
+        sp = this.context.getSharedPreferences(NAME, Context.MODE_PRIVATE);
+    }
+
+    // ---------- 문자 앱 ----------
+
+    static String defaultSmsApp(Context c) {
+        try {
+            return Telephony.Sms.getDefaultSmsPackage(c);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    static boolean isSmsApp(Context c, String pkg) {
+        if (pkg == null) return false;
+        if (pkg.equals(defaultSmsApp(c))) return true;
+        for (String s : SMS_APPS) if (s.equals(pkg)) return true;
+        return false;
+    }
+
+    String keywords() {
+        return sp.getString(KEYWORDS, DEFAULT_KEYWORDS);
+    }
+
+    void setKeywords(String k) {
+        sp.edit().putString(KEYWORDS, k == null ? "" : k.trim()).apply();
+    }
+
+    /** 단어 목록이 비어 있으면 모두 통과 */
+    boolean matchesKeywords(String body) {
+        boolean any = false;
+        for (String k : keywords().split("[,，]")) {
+            String w = k.trim();
+            if (w.isEmpty()) continue;
+            any = true;
+            if (body.contains(w)) return true;
+        }
+        return !any;
     }
 
     // ---------- 서버 주소 ----------
@@ -50,6 +96,8 @@ final class Prefs {
     Set<String> selected() {
         Set<String> def = new HashSet<>();
         def.add(KAKAOBANK);
+        String sms = defaultSmsApp(context); // 은행 알림을 문자로 받는 경우를 위해 기본 문자 앱도 처음부터 켠다
+        if (sms != null) def.add(sms);
         return new HashSet<>(sp.getStringSet(SELECTED, def));
     }
 

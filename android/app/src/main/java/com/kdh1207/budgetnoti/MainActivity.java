@@ -126,10 +126,12 @@ public class MainActivity extends Activity {
 
         // 3. 보낼 앱
         LinearLayout c3 = card("③ 알림을 보낼 앱", null, true);
-        c3.addView(text("기본은 카카오뱅크예요. 다른 은행·카드 앱에서 알림이 한 번 오면 이 목록에 나타나요. 문자 앱을 고르면 '원'이 들어간 모든 문자가 서버로 가니 필요할 때만 켜세요.", 13, TEXT2));
+        c3.addView(text("카카오뱅크 앱과 기본 문자 앱이 처음부터 켜져 있어요. 은행 알림을 문자로 받는다면 문자 앱을, 앱 푸시로 받는다면 카카오뱅크를 켜 두면 돼요. 다른 은행·카드 앱은 알림이 한 번 오면 이 목록에 나타나요.", 13, TEXT2));
         Set<String> selected = prefs.selected();
         List<String> apps = new ArrayList<>();
         apps.add(Prefs.KAKAOBANK);
+        String sms = Prefs.defaultSmsApp(this);
+        if (sms != null) apps.add(sms);
         for (String s : selected) if (!apps.contains(s)) apps.add(s);
         for (String s : prefs.seen()) if (!apps.contains(s)) apps.add(s);
         for (String pkg : apps) {
@@ -140,6 +142,15 @@ public class MainActivity extends Activity {
             cb.setOnCheckedChangeListener((b, on) -> prefs.setSelected(pkg, on));
             c3.addView(cb);
         }
+        c3.addView(text("문자는 아래 단어 중 하나가 들어 있고 금액(원)이 있는 것만 보내요. 쉼표로 구분해요.", 13, TEXT2));
+        EditText kw = new EditText(this);
+        kw.setText(prefs.keywords());
+        kw.setTextSize(14);
+        c3.addView(kw);
+        c3.addView(button("단어 저장", v -> {
+            prefs.setKeywords(kw.getText().toString());
+            Toast.makeText(this, "저장했어요.", Toast.LENGTH_SHORT).show();
+        }));
 
         // 4. 배터리
         LinearLayout c4 = card("④ 배터리 제한 해제", battery ? "해제됨" : "권장", battery);
@@ -207,7 +218,15 @@ public class MainActivity extends Activity {
     }
 
     private String appLabel(String pkg) {
-        if (Prefs.KAKAOBANK.equals(pkg)) return "카카오뱅크";
+        if (Prefs.KAKAOBANK.equals(pkg)) return "카카오뱅크 (앱 알림)";
+        if (pkg.equals(Prefs.defaultSmsApp(this))) {
+            try {
+                PackageManager pm = getPackageManager();
+                return "문자 메시지 — " + pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0));
+            } catch (Exception e) {
+                return "문자 메시지 (" + pkg + ")";
+            }
+        }
         try {
             PackageManager pm = getPackageManager();
             ApplicationInfo info = pm.getApplicationInfo(pkg, 0);

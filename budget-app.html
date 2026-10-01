@@ -3505,7 +3505,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
         <ol class="steps">
           <li><a href="${NOTI_APK_URL}" target="_blank" rel="noopener"><b>가계부 알림 연결 앱 받기</b></a> → 받은 <code>budget-noti.apk</code> 를 눌러 설치 (처음이면 "출처를 알 수 없는 앱 설치"를 허용)</li>
           <li>앱을 설치한 휴대폰에서 이 버튼을 누르세요: <a class="primary-btn small-btn" href="${esc(connectLink())}" target="_blank" rel="noopener">알림 앱 연결</a> <span class="muted">(서버 주소가 앱에 자동으로 들어가요)</span></li>
-          <li>앱 화면에서 <b>알림 접근 허용</b>, <b>배터리 제한 해제</b>, <b>테스트 보내기</b>를 차례로 누르면 끝이에요.</li>
+          <li>앱 화면에서 <b>알림 접근 허용</b>, <b>배터리 제한 해제</b>, <b>테스트 보내기</b>를 차례로 누르면 끝이에요. 은행 알림을 <b>문자</b>로 받든 <b>앱 푸시</b>로 받든 그대로 동작해요 (기본 문자 앱과 카카오뱅크 앱이 처음부터 켜져 있어요).</li>
         </ol>
         <p class="muted small">버튼이 동작하지 않으면 아래 주소를 복사해 앱의 "서버 주소" 칸에 붙여넣으세요. 계좌·카드에 카카오뱅크 끝 4자리를 등록해 두면 잔액도 갱신돼요.</p>
         <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl('bank'))}" id="url-bank"><button class="ghost-btn" data-copy="url-bank">복사</button></div>

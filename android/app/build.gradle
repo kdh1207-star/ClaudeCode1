@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.kdh1207.budgetnoti'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.kdh1207.budgetnoti'
+        minSdk 26
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName "1.0.${System.getenv('VERSION_CODE') ?: '0'}"
+    }
+
+    // 직접 설치(사이드로드)하는 개인용 앱이라 저장소에 둔 고정 키로 서명한다.
+    // 키가 같아야 새 버전을 지우지 않고 덮어 설치할 수 있다.
+    signingConfigs {
+        stable {
+            storeFile file('../signing/budgetnoti.jks')
+            storePassword 'budgetnoti'
+            keyAlias 'budgetnoti'
+            keyPassword 'budgetnoti'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.stable
+        }
+        debug {
+            signingConfig signingConfigs.stable
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+}

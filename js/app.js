@@ -1165,18 +1165,18 @@
         </form>
         ${store.aiEnabled ? `<div class="form-grid" style="margin-top:12px"><label class="wide">사용할 모델<select id="ai-model">${(store.aiModels.length ? store.aiModels : [store.aiModel]).map((m) => `<option value="${esc(m)}" ${m === store.aiModel ? 'selected' : ''}>${esc(MODEL_LABEL[m] || m)}</option>`).join('')}</select></label></div>` : ''}
         ${store.aiError ? `<p class="muted small">최근 AI 오류: ${esc(store.aiError)}</p>` : ''}
-        <h3>카카오뱅크 알림 자동 입력 (안드로이드)</h3>
+        <h3>카카오뱅크 문자 자동 입력 (MacroDroid 무료)</h3>
         <ol class="steps">
-          <li><a href="${NOTI_APK_URL}" target="_blank" rel="noopener"><b>가계부 알림 연결 앱 받기</b></a> → 받은 <code>budget-noti.apk</code> 를 눌러 설치 (처음이면 "출처를 알 수 없는 앱 설치"를 허용)</li>
-          <li>앱을 설치한 휴대폰에서 이 버튼을 누르세요: <a class="primary-btn small-btn" href="${esc(connectLink())}" target="_blank" rel="noopener">알림 앱 연결</a> <span class="muted">(서버 주소가 앱에 자동으로 들어가요)</span></li>
-          <li>앱 화면에서 <b>알림 접근 허용</b>, <b>배터리 제한 해제</b>, <b>테스트 보내기</b>를 차례로 누르면 끝이에요. 은행 알림을 <b>문자</b>로 받든 <b>앱 푸시</b>로 받든 그대로 동작해요 (기본 문자 앱과 카카오뱅크 앱이 처음부터 켜져 있어요).</li>
+          <li>플레이 스토어에서 <b>MacroDroid</b> 설치 (Pro 7일 체험 안내는 닫기)</li>
+          <li>매크로 추가 → 트리거 <b>전화/SMS → SMS 수신</b> (모든 번호, 내용에 <code>잔액</code> 포함)</li>
+          <li>동작 <b>연결 → HTTP 요청</b>: POST, 아래 주소, 본문 text/plain 에 매직 텍스트 <code>[sms_message]</code></li>
+          <li>저장 후 휴대폰 설정에서 MacroDroid 배터리 <b>제한 없음</b></li>
         </ol>
-        <p class="muted small">버튼이 동작하지 않으면 아래 주소를 복사해 앱의 "서버 주소" 칸에 붙여넣으세요. 계좌·카드에 카카오뱅크 끝 4자리를 등록해 두면 잔액도 갱신돼요.</p>
         <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl('bank'))}" id="url-bank"><button class="ghost-btn" data-copy="url-bank">복사</button></div>
+        <p class="muted small">문자가 와도 반응이 없으면 트리거를 <b>알림 수신</b>(메시지 앱, 내용 <code>잔액</code>)으로 바꾸고 본문을 <code>[notification_title] [notification]</code> 로 하세요. 계좌·카드에 카카오뱅크 끝 4자리를 등록해 두면 잔액도 갱신돼요. 자세한 방법은 SETUP.md 6단계에 있어요.</p>
         <details class="small">
-          <summary>카드 결제 문자(SMS)도 보내려면 / MacroDroid 로 하려면</summary>
-          <p class="muted">알림 연결 앱의 "알림을 보낼 앱"에서 문자 앱을 켜면 카드 결제 문자도 보내요. ('원'이 들어간 문자만 보내고, 결제가 아닌 문자는 서버가 무시해요.) MacroDroid 같은 다른 자동화 앱을 쓴다면 아래 주소로 POST 하면 돼요.</p>
-          <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl(''))}" id="url-sms"><button class="ghost-btn" data-copy="url-sms">복사</button></div>
+          <summary>직접 만든 알림 연결 앱 (선택, 보안 차단될 수 있음)</summary>
+          <p class="muted">플레이 스토어 밖 앱이라 삼성 보안 기능이 설치를 막을 수 있어요. 보안 설정을 끄면서까지 쓰는 것은 권하지 않아요. <a href="${NOTI_APK_URL}" target="_blank" rel="noopener">APK 받기</a> · <a href="${esc(connectLink())}" target="_blank" rel="noopener">설치한 앱에 연결</a></p>
         </details>
         <div class="row-actions">
           ${store.server.embedded ? '<button id="forget-key-btn" class="ghost-btn small-btn">이 기기에서 접속 키 지우기</button>' : '<button id="disconnect-btn" class="danger-btn">연결 해제 (이 기기 저장으로)</button>'}

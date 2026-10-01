@@ -585,6 +585,209 @@
     };
   }
 
+  // ---------- 은행 거래내역 파일 (엑셀/CSV) ----------
+  // 은행마다 항목 이름이 달라서, 머리글(첫 줄)의 이름을 보고 칸을 찾는다.
+
+  const COLUMN_HINTS = [
+    ['date', /거래\s*일시|거래\s*일자|거래\s*날짜|^일시$|^날짜$|^일자$|^거래일$/],
+    ['time', /^시간$|거래\s*시간|^시각$/],
+    ['category', /거래\s*구분|거래\s*유형|거래\s*종류/],
+    ['type', /^구분$|입출금\s*구분|입\s*\/\s*출금|^입출금$/],
+    ['out', /출금\s*(액|금액)?$|찾으신\s*금액|지급\s*(액|금액)?$/],
+    ['in', /입금\s*(액|금액)?$|맡기신\s*금액/],
+    ['amount', /거래\s*금액|^금액$/],
+    ['balance', /잔액/],
+    ['memo', /^내용$|거래\s*내용|적요|받는\s*분|보낸\s*분|거래처|기재\s*내용|상대/],
+    ['note', /^메모$/],
+  ];
+
+  function cellText(v) {
+    return v === null || v === undefined ? '' : String(v).trim();
+  }
+
+  function findHeader(rows) {
+    for (let r = 0; r < Math.min(rows.length, 30); r++) {
+      const cols = {};
+      (rows[r] || []).forEach((cell, c) => {
+        const name = cellText(cell).replace(/\s+/g, ' ');
+        if (!name) return;
+        for (const [key, re] of COLUMN_HINTS) {
+          if (cols[key] === undefined && re.test(name)) {
+            cols[key] = c;
+            break;
+          }
+        }
+      });
+      if (cols.date !== undefined && (cols.amount !== undefined || cols.out !== undefined || cols.in !== undefined)) return { row: r, cols };
+    }
+    return null;
+  }
+
+  // 엑셀 날짜 일련번호(45928 등) 또는 "2026.09.28 14:02" 같은 글자 → { date, time }
+  function parseDateCell(v) {
+    if (typeof v === 'number' && v > 20000 && v < 80000) {
+      const ms = Math.round((v - 25569) * 86400000);
+      const d = new Date(ms);
+      return {
+        date: toISO(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()),
+        time: Number.isInteger(v) ? '' : `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`,
+      };
+    }
+    const s = cellText(v);
+    const m = s.match(/(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/);
+    if (!m) return null;
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (!validDate(y, mo, d)) return null;
+    const t = s.slice(m.index + m[0].length).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    return { date: toISO(y, mo, d), time: t ? `${pad(t[1])}:${t[2]}:${t[3] || '00'}` : '' };
+  }
+
+  function parseAmountCell(v) {
+    if (typeof v === 'number') return v;
+    let s = cellText(v).replace(/[,\s원]/g, '');
+    if (!s) return null;
+    let neg = false;
+    if (/^\(.*\)$/.test(s)) {
+      neg = true;
+      s = s.slice(1, -1);
+    }
+    const n = Number(s);
+    if (!Number.isFinite(n)) return null;
+    return neg ? -n : n;
+  }
+
+  /*
+   * 거래내역 표(2차원 배열)를 내역으로 바꾼다.
+   * opts: { myName, accountId }
+   * 반환: { items: [{date, time, amount, memo, kind, accountId, balance, raw}], skipped, header, latest: {date, time, balance} | null }
+   */
+  function parseStatementRows(rows, opts = {}) {
+    const header = findHeader(rows);
+    if (!header) return { items: [], skipped: 0, header: null, latest: null };
+    const { cols } = header;
+    const get = (row, key) => (cols[key] === undefined ? '' : row[cols[key]]);
+    const items = [];
+    let skipped = 0;
+    let latest = null;
+    // 금액 한 칸에 출금은 음수로 적는 파일인지 (그렇다면 양수는 입금)
+    const signed = cols.amount !== undefined && rows.slice(header.row + 1).some((row) => (parseAmountCell((row || [])[cols.amount]) || 0) < 0);
+
+    for (let r = header.row + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      if (!row.some((c) => cellText(c))) continue;
+      const when = parseDateCell(get(row, 'date'));
+      if (!when) {
+        skipped += 1;
+        continue;
+      }
+      if (!when.time && cols.time !== undefined) {
+        const t = cellText(get(row, 'time')).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (t) when.time = `${pad(t[1])}:${t[2]}:${t[3] || '00'}`;
+      }
+
+      const typeText = cellText(get(row, 'type'));
+      const categoryText = cellText(get(row, 'category'));
+      const out = parseAmountCell(get(row, 'out'));
+      const inn = parseAmountCell(get(row, 'in'));
+      const amt = parseAmountCell(get(row, 'amount'));
+
+      let kind;
+      let amount;
+      if (out) {
+        kind = 'expense';
+        amount = Math.abs(out);
+      } else if (inn) {
+        kind = 'income';
+        amount = Math.abs(inn);
+      } else if (amt) {
+        amount = Math.abs(amt);
+        if (/입금/.test(typeText)) kind = 'income';
+        else if (/출금|지급/.test(typeText)) kind = 'expense';
+        else if (amt < 0) kind = 'expense';
+        else kind = signed ? 'income' : 'expense';
+      } else {
+        skipped += 1;
+        continue;
+      }
+
+      const memoMain = cellText(get(row, 'memo'));
+      const note = cellText(get(row, 'note'));
+      const memo = memoMain || note || categoryText || '(내용 없음)';
+      const allText = `${typeText} ${categoryText} ${memo} ${note}`;
+
+      // 카드 결제 취소·환불로 들어온 돈은 지출을 줄이는 것으로 본다
+      if (kind === 'income' && /취소|환불/.test(allText)) {
+        kind = 'expense';
+        amount = -amount;
+      }
+      if (opts.myName && memo.includes(opts.myName) && !/카드|결제|승인/.test(allText)) kind = 'transfer';
+
+      const balance = parseAmountCell(get(row, 'balance'));
+      const item = {
+        date: when.date,
+        time: when.time,
+        amount,
+        memo,
+        kind,
+        accountId: opts.accountId || null,
+        balance: Number.isFinite(balance) ? balance : null,
+        raw: row.map(cellText).filter(Boolean).join(' | ').slice(0, 300),
+      };
+      items.push(item);
+      if (item.balance !== null) {
+        const key = `${item.date} ${item.time}`;
+        if (!latest || key >= `${latest.date} ${latest.time}`) latest = { date: item.date, time: item.time, balance: item.balance };
+      }
+    }
+    return { items, skipped, header, latest };
+  }
+
+  // CSV 글자 → 2차원 배열 (따옴표 안의 쉼표·줄바꿈 처리)
+  function parseCSV(text) {
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let quoted = false;
+    const s = String(text || '').replace(/^﻿/, '');
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (quoted) {
+        if (ch === '"' && s[i + 1] === '"') {
+          cell += '"';
+          i += 1;
+        } else if (ch === '"') quoted = false;
+        else cell += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === ',' || ch === '\t') {
+        row.push(cell);
+        cell = '';
+      } else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && s[i + 1] === '\n') i += 1;
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = '';
+      } else cell += ch;
+    }
+    if (cell || row.length) {
+      row.push(cell);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  // 알림으로 이미 들어온 내역인지: 정확히 같거나, 같은 날·같은 금액·같은 종류이면서 사용처가 겹치거나 같은 계좌
+  function findDuplicate(item, transactions) {
+    const memo = normalizeMerchant(item.memo);
+    return transactions.find((t) => {
+      if (t.date !== item.date || Math.abs(t.amount) !== Math.abs(item.amount)) return false;
+      if (kindOf(t) !== kindOf(item)) return false;
+      const tm = normalizeMerchant(t.memo);
+      if (tm === memo || (tm && memo && (tm.includes(memo) || memo.includes(tm)))) return true;
+      return !!(item.accountId && t.accountId === item.accountId);
+    }) || null;
+  }
+
   // ---------- 리포트 ----------
 
   // 항목별 지출 (많이 쓴 순). 색은 계획 안의 순서(colorIndex)로 정해 순위가 바뀌어도 같은 항목은 같은 색.
@@ -771,6 +974,9 @@
     readClassifyResponse,
     buildMessageRequest,
     readMessageResponse,
+    parseStatementRows,
+    parseCSV,
+    findDuplicate,
     categoryBreakdown,
     compareWithPrevious,
     topMerchants,

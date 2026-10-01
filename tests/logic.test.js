@@ -272,3 +272,59 @@ test('자산: 계좌 잔액 합계와 카드별 사용액', () => {
   assert.equal(a.unlinkedSpent, 7000);
 });
 
+
+test('거래내역 파일: 카카오뱅크처럼 금액 한 칸에 부호가 있는 표', () => {
+  const rows = [
+    ['카카오뱅크 거래내역'], [],
+    ['거래일시', '구분', '거래금액', '거래 후 잔액', '거래구분', '내용', '메모'],
+    ['2026.09.28 14:02:11', '출금', '-50,000', '1,234,000', '일반이체', '김철수', ''],
+    ['2026.09.27 09:00:00', '입금', '3,000,000', '1,284,000', '일반입금', '(주)회사', ''],
+    ['2026.09.26 12:10:00', '출금', '-8,000', '', '체크카드결제', '김밥천국', ''],
+    ['2026.09.25 12:10:00', '입금', '8,000', '', '체크카드취소', '김밥천국', ''],
+    ['2026.09.24 10:00:00', '출금', '-300,000', '', '일반이체', '홍길동', ''],
+  ];
+  const r = L.parseStatementRows(rows, { myName: '홍길동', accountId: 'kb' });
+  assert.deepEqual(r.items.map((x) => [x.date, x.kind, x.amount, x.memo]), [
+    ['2026-09-28', 'expense', 50000, '김철수'],
+    ['2026-09-27', 'income', 3000000, '(주)회사'],
+    ['2026-09-26', 'expense', 8000, '김밥천국'],
+    ['2026-09-25', 'expense', -8000, '김밥천국'], // 결제 취소는 지출을 줄인다
+    ['2026-09-24', 'transfer', 300000, '홍길동'], // 내 이름으로 보낸 돈은 내 계좌 이체
+  ]);
+  assert.ok(r.items.every((x) => x.accountId === 'kb'));
+  assert.deepEqual(r.latest, { date: '2026-09-28', time: '14:02:11', balance: 1234000 });
+});
+
+test('거래내역 파일: 출금·입금 칸이 나뉜 표, 엑셀 날짜 숫자, 구분 없는 부호 없는 금액', () => {
+  const split = L.parseStatementRows([
+    ['거래일자', '거래시간', '적요', '출금액', '입금액', '잔액'],
+    [45928, '14:02', '스타벅스', '5,600', '0', '100,000'],
+    ['2026-09-29', '09:00', '이자', '', '120', '100,120'],
+  ]);
+  assert.deepEqual(split.items.map((x) => [x.date, x.time, x.kind, x.amount, x.memo]), [
+    ['2025-09-28', '14:02:00', 'expense', 5600, '스타벅스'],
+    ['2026-09-29', '09:00:00', 'income', 120, '이자'],
+  ]);
+  const unsigned = L.parseStatementRows([['날짜', '내용', '금액'], ['2026/09/01', '편의점', '3,000']]);
+  assert.equal(unsigned.items[0].kind, 'expense');
+  assert.equal(L.parseStatementRows([['아무', '표']]).header, null);
+});
+
+test('CSV 읽기', () => {
+  assert.deepEqual(L.parseCSV('﻿거래일시,내용,거래금액\r\n2026.09.01,"카페, 강남",-4500\n'), [
+    ['거래일시', '내용', '거래금액'],
+    ['2026.09.01', '카페, 강남', '-4500'],
+  ]);
+});
+
+test('중복 찾기: 알림으로 이미 들어온 내역', () => {
+  const txs = [
+    { id: 1, date: '2026-09-28', amount: 50000, memo: '김철수', kind: 'expense', accountId: 'kb' },
+    { id: 2, date: '2026-09-26', amount: 8000, memo: '김밥천국 역삼점', kind: 'expense' },
+  ];
+  assert.equal(L.findDuplicate({ date: '2026-09-28', amount: 50000, memo: '김철수 송금', kind: 'expense' }, txs).id, 1);
+  assert.equal(L.findDuplicate({ date: '2026-09-26', amount: 8000, memo: '김밥천국', kind: 'expense' }, txs).id, 2);
+  assert.equal(L.findDuplicate({ date: '2026-09-28', amount: 50000, memo: '다른 사람', kind: 'expense', accountId: 'kb' }, txs).id, 1);
+  assert.equal(L.findDuplicate({ date: '2026-09-28', amount: 50000, memo: '다른 사람', kind: 'expense' }, txs), null);
+  assert.equal(L.findDuplicate({ date: '2026-09-28', amount: 50000, memo: '김철수', kind: 'income' }, txs), null);
+});

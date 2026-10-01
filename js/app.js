@@ -107,8 +107,6 @@
   let currentPage = 'home';
   let selectedDate = null;
   const listState = { search: '', kind: 'all', category: 'all', account: 'all' };
-  let parsedItems = [];
-  let parsedSkipped = [];
   let manualKind = 'expense';
 
   const planForDate = (date) => store.planForDate(date);
@@ -848,6 +846,8 @@
     sel.value = [...sel.options].some((o) => o.value === prev) ? prev : '__auto';
     const acc = $('#m-account').value;
     $('#m-account').innerHTML = accountOptions(acc);
+    const fileAcc = $('#file-account').value || (S().accounts.find((a) => a.type !== 'card') || {}).id || '';
+    $('#file-account').innerHTML = accountOptions(fileAcc, '계좌 선택 안 함');
     $('#m-memo').placeholder = manualKind === 'income' ? '(주)회사 급여' : manualKind === 'transfer' ? '적금 계좌로' : '스타벅스 강남점';
     updateManualHint();
     renderParseResult();
@@ -904,75 +904,159 @@
     render();
   }
 
+  // 붙여넣기와 파일 가져오기가 같은 미리보기를 쓴다. preview.source: 'paste' | 'file'
+  const preview = { source: 'paste', items: [], skipped: [], latest: null, accountId: null, fileName: '' };
+
+  function clearPreview() {
+    Object.assign(preview, { items: [], skipped: [], latest: null, accountId: null, fileName: '' });
+    renderParseResult();
+  }
+
+  // 지출만 분류한다. 서버(AI)는 여러 번에 나눠 보낸다.
+  async function classifyPreview(items) {
+    const expenses = items.filter((it) => it.kind === 'expense');
+    const step = store.mode === 'remote' ? 60 : expenses.length || 1;
+    for (let i = 0; i < expenses.length; i += step) {
+      const chunk = expenses.slice(i, i + step);
+      if (store.aiEnabled && expenses.length > step) toast(`AI가 분류하는 중… (${Math.min(i + step, expenses.length)}/${expenses.length})`, 60000);
+      const res = await store.classify(chunk.map(({ date, amount, memo }) => ({ date, amount, memo })));
+      chunk.forEach((it, k) => Object.assign(it, res[k]));
+    }
+  }
+
+  function withDupFlags(items) {
+    return items.map((it) => {
+      const dup = !!L.findDuplicate(it, S().transactions);
+      return { categoryId: null, method: null, ...it, dup, checked: !dup };
+    });
+  }
+
   async function onParse() {
     const { items, skipped } = L.parseExpenseText($('#paste-input').value, L.todayISO());
-    parsedSkipped = skipped;
-    parsedItems = items.map((it) => ({ ...it, categoryId: null, method: null, checked: !L.isDuplicate(it, S().transactions), dup: L.isDuplicate(it, S().transactions) }));
-    if (parsedItems.length) {
-      const res = await busy(store.aiEnabled ? `AI가 ${parsedItems.length}건을 분류하는 중…` : null, () =>
-        store.classify(parsedItems.map(({ date, amount, memo }) => ({ date, amount, memo })))
-      );
-      parsedItems.forEach((it, i) => Object.assign(it, res[i]));
+    Object.assign(preview, { source: 'paste', skipped, latest: null, accountId: null, fileName: '' });
+    preview.items = withDupFlags(items.map((it) => ({ ...it, kind: 'expense' })));
+    if (preview.items.length) await busy(store.aiEnabled ? `AI가 ${preview.items.length}건을 분류하는 중…` : null, () => classifyPreview(preview.items));
+    renderParseResult();
+  }
+
+  async function onFileChosen(file) {
+    const accountId = $('#file-account').value || null;
+    let rows;
+    try {
+      rows = await window.BudgetXlsx.readTableFile(file);
+    } catch (e) {
+      return toast(e.message || '파일을 읽지 못했어요.', 7000);
+    }
+    const parsed = L.parseStatementRows(rows, { myName: S().settings.myName, accountId });
+    if (!parsed.header) return toast('거래내역 표를 찾지 못했어요. 날짜와 금액 칸이 있는 은행 거래내역 파일인지 확인해 주세요.', 7000);
+    Object.assign(preview, { source: 'file', skipped: [], latest: parsed.latest, accountId, fileName: file.name });
+    preview.items = withDupFlags(parsed.items);
+    if (parsed.skipped) preview.skipped = [`날짜를 읽지 못한 줄 ${parsed.skipped}개`];
+    if (preview.items.length) {
+      await busy(store.aiEnabled ? `AI가 ${preview.items.filter((x) => x.kind === 'expense').length}건을 분류하는 중…` : null, () => classifyPreview(preview.items));
     }
     renderParseResult();
   }
 
+  const KIND_LABEL = { income: '입금', transfer: '내 계좌 이체' };
+
   function renderParseResult() {
-    const el = $('#parse-result');
-    if (!parsedItems.length && !parsedSkipped.length) {
-      el.innerHTML = '';
+    const target = preview.source === 'file' ? $('#file-result') : $('#parse-result');
+    const other = preview.source === 'file' ? $('#parse-result') : $('#file-result');
+    other.innerHTML = '';
+    if (!preview.items.length && !preview.skipped.length) {
+      target.innerHTML = '';
       return;
     }
-    const rows = parsedItems.map((it, i) => `
+    const items = preview.items;
+    const rows = items.map((it, i) => `
       <tr>
         <td><input type="checkbox" data-i="${i}" class="p-check" ${it.checked ? 'checked' : ''} aria-label="추가"></td>
         <td><input type="date" data-i="${i}" class="p-date" value="${it.date}"></td>
-        <td class="memo">${esc(it.memo)} ${it.dup ? '<span class="tag warn">중복?</span>' : ''} ${methodTag(it.method)}</td>
-        <td class="amount ${it.amount < 0 ? 'refund' : ''}">${won(it.amount)}</td>
-        <td><select data-i="${i}" class="p-cat">${categoryOptions(planForDate(it.date).categories, it.categoryId)}</select></td>
+        <td class="memo">${esc(it.memo)} ${it.dup ? '<span class="tag warn">중복?</span>' : ''} ${it.kind === 'expense' ? methodTag(it.method) : ''}</td>
+        <td class="amount ${it.kind === 'income' || it.amount < 0 ? 'refund' : ''}">${it.kind === 'income' ? '+' : ''}${won(it.amount)}</td>
+        <td>${it.kind === 'expense'
+          ? `<select data-i="${i}" class="p-cat">${categoryOptions(planForDate(it.date).categories, it.categoryId)}</select>`
+          : `<span class="tag">${KIND_LABEL[it.kind]}</span>`}</td>
       </tr>`).join('');
-    el.innerHTML = `
-      ${parsedItems.length ? `
+    const dups = items.filter((x) => x.dup).length;
+    const dates = items.map((x) => x.date).sort();
+    const summary = preview.source === 'file' && items.length
+      ? `<p class="small">${esc(preview.fileName)} · ${fmtDate(dates[0])} ~ ${fmtDate(dates[dates.length - 1])} · ${items.length}건${dups ? ` (이미 있는 내역으로 보이는 ${dups}건은 빼 두었어요)` : ''}${preview.latest ? ` · 마지막 잔액 ${won(preview.latest.balance)}` : ''}</p>`
+      : '';
+    target.innerHTML = `
+      ${summary}
+      ${items.length ? `
+      <div class="row-actions">
+        <button class="ghost-btn small-btn" id="p-all">모두 선택</button>
+        <button class="ghost-btn small-btn" id="p-none">모두 해제</button>
+      </div>
       <div class="table-wrap">
         <table class="stack-table parse-table">
           <thead><tr><th></th><th>날짜</th><th>사용처</th><th class="amount">금액</th><th>항목</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <div class="row-actions"><button id="p-add" class="primary-btn">선택한 ${parsedItems.filter((x) => x.checked).length}건 추가</button></div>` : ''}
-      ${parsedSkipped.length ? `<p class="muted small">금액을 찾지 못해 건너뛴 줄 ${parsedSkipped.length}개: ${parsedSkipped.map(esc).join(' / ')}</p>` : ''}`;
+      <div class="row-actions"><button id="p-add" class="primary-btn">선택한 ${items.filter((x) => x.checked).length}건 추가</button></div>` : ''}
+      ${preview.skipped.length ? `<p class="muted small">건너뛴 줄 ${preview.skipped.length}개: ${preview.skipped.map(esc).join(' / ')}</p>` : ''}`;
 
-    el.querySelectorAll('.p-check').forEach((c) => c.addEventListener('change', () => {
-      parsedItems[c.dataset.i].checked = c.checked;
+    const setAll = (v) => {
+      items.forEach((x) => (x.checked = v));
+      renderParseResult();
+    };
+    if ($('#p-all')) $('#p-all').addEventListener('click', () => setAll(true));
+    if ($('#p-none')) $('#p-none').addEventListener('click', () => setAll(false));
+    target.querySelectorAll('.p-check').forEach((c) => c.addEventListener('change', () => {
+      items[c.dataset.i].checked = c.checked;
       renderParseResult();
     }));
-    el.querySelectorAll('.p-date').forEach((c) => c.addEventListener('change', () => (parsedItems[c.dataset.i].date = c.value)));
-    el.querySelectorAll('.p-cat').forEach((c) => c.addEventListener('change', () => {
-      const it = parsedItems[c.dataset.i];
+    target.querySelectorAll('.p-date').forEach((c) => c.addEventListener('change', () => (items[c.dataset.i].date = c.value)));
+    target.querySelectorAll('.p-cat').forEach((c) => c.addEventListener('change', () => {
+      const it = items[c.dataset.i];
       it.categoryId = c.value || null;
       it.method = c.value ? 'manual' : null;
     }));
     const addBtn = $('#p-add');
-    if (addBtn) addBtn.addEventListener('click', quiet(async () => {
-      const chosen = parsedItems.filter((x) => x.checked && x.date);
-      if (!chosen.length) return toast('추가할 항목을 선택해 주세요.');
-      let learned = false;
-      for (const it of chosen) {
-        if (it.method === 'manual' && it.categoryId) {
-          S().merchantMap[L.normalizeMerchant(it.memo)] = it.categoryId;
-          learned = true;
-        }
+    if (addBtn) addBtn.addEventListener('click', quiet(addPreviewItems));
+  }
+
+  async function addPreviewItems() {
+    const chosen = preview.items.filter((x) => x.checked && x.date);
+    if (!chosen.length) return toast('추가할 내역을 선택해 주세요.');
+    let changedMeta = false;
+    for (const it of chosen) {
+      if (it.method === 'manual' && it.categoryId) {
+        S().merchantMap[L.normalizeMerchant(it.memo)] = it.categoryId;
+        changedMeta = true;
       }
-      if (learned) store.saveMeta();
-      await busy('저장하는 중…', () =>
-        store.addTransactions(chosen.map((it) => ({ date: it.date, amount: it.amount, memo: it.memo, kind: 'expense', categoryId: it.categoryId, method: it.method, source: 'paste', raw: it.raw })))
+    }
+    // 파일의 마지막 잔액이 지금 알고 있는 잔액보다 최근이면 계좌 잔액을 바꾼다
+    const acc = preview.accountId && S().accounts.find((a) => a.id === preview.accountId);
+    if (acc && preview.latest) {
+      const at = new Date(`${preview.latest.date}T${preview.latest.time || '23:59:59'}+09:00`).toISOString();
+      if (!acc.balanceAt || at > acc.balanceAt) {
+        acc.balance = preview.latest.balance;
+        acc.balanceAt = at;
+        changedMeta = true;
+      }
+    }
+    if (changedMeta) store.saveMeta();
+    const source = preview.source === 'file' ? 'file' : 'paste';
+    for (let i = 0; i < chosen.length; i += 200) {
+      const part = chosen.slice(i, i + 200);
+      await busy(`저장하는 중… (${Math.min(i + 200, chosen.length)}/${chosen.length})`, () =>
+        store.addTransactions(part.map((it) => ({
+          date: it.date, amount: it.amount, memo: it.memo, kind: it.kind || 'expense', accountId: it.accountId || null,
+          categoryId: it.kind === 'expense' ? it.categoryId : null, method: it.method, source, raw: it.raw,
+        })))
       );
-      parsedItems = [];
-      parsedSkipped = [];
-      $('#paste-input').value = '';
-      toast(`${chosen.length}건을 추가했습니다.`);
-      jumpToDate(chosen[0].date);
-    }));
+    }
+    const latestDate = chosen.map((x) => x.date).sort().pop();
+    if (preview.source === 'paste') $('#paste-input').value = '';
+    else $('#file-input').value = '';
+    clearPreview();
+    toast(`${chosen.length}건을 추가했습니다.`);
+    jumpToDate(latestDate);
   }
 
   // ---------- 설정 ----------
@@ -1202,10 +1286,11 @@
     $('#parse-btn').addEventListener('click', quiet(onParse));
     $('#paste-clear').addEventListener('click', () => {
       $('#paste-input').value = '';
-      parsedItems = [];
-      parsedSkipped = [];
-      renderParseResult();
+      clearPreview();
     });
+    $('#file-input').addEventListener('change', quiet(async (e) => {
+      if (e.target.files[0]) await onFileChosen(e.target.files[0]);
+    }));
 
     // 내역
     const setFilter = (key, value) => {

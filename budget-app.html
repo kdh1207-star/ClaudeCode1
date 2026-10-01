@@ -667,6 +667,15 @@ td.memo { min-width: 120px; word-break: break-all; }
             </div>
             <div id="parse-result"></div>
           </div>
+          <div class="card">
+            <h2>은행 거래내역 파일 가져오기</h2>
+            <p class="muted small">카카오뱅크: 앱에서 계좌 선택 → 오른쪽 위 설정(톱니바퀴) → <b>거래내역</b> → 이메일과 기간을 넣고 받기. 메일로 온 엑셀(.xlsx)이나 CSV 파일을 그대로 올리세요. 다른 은행 파일도 날짜·금액 칸이 있으면 읽습니다. 알림으로 이미 들어온 내역은 <b>중복?</b>으로 표시하고 빼 둡니다.</p>
+            <div class="form-grid">
+              <label>어느 계좌의 내역인가요<select id="file-account"></select></label>
+              <label>파일<input type="file" id="file-input" accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+            </div>
+            <div id="file-result"></div>
+          </div>
         </section>
 
         <!-- 설정 -->
@@ -1316,6 +1325,209 @@ td.memo { min-width: 120px; word-break: break-all; }
     };
   }
 
+  // ---------- 은행 거래내역 파일 (엑셀/CSV) ----------
+  // 은행마다 항목 이름이 달라서, 머리글(첫 줄)의 이름을 보고 칸을 찾는다.
+
+  const COLUMN_HINTS = [
+    ['date', /거래\s*일시|거래\s*일자|거래\s*날짜|^일시$|^날짜$|^일자$|^거래일$/],
+    ['time', /^시간$|거래\s*시간|^시각$/],
+    ['category', /거래\s*구분|거래\s*유형|거래\s*종류/],
+    ['type', /^구분$|입출금\s*구분|입\s*\/\s*출금|^입출금$/],
+    ['out', /출금\s*(액|금액)?$|찾으신\s*금액|지급\s*(액|금액)?$/],
+    ['in', /입금\s*(액|금액)?$|맡기신\s*금액/],
+    ['amount', /거래\s*금액|^금액$/],
+    ['balance', /잔액/],
+    ['memo', /^내용$|거래\s*내용|적요|받는\s*분|보낸\s*분|거래처|기재\s*내용|상대/],
+    ['note', /^메모$/],
+  ];
+
+  function cellText(v) {
+    return v === null || v === undefined ? '' : String(v).trim();
+  }
+
+  function findHeader(rows) {
+    for (let r = 0; r < Math.min(rows.length, 30); r++) {
+      const cols = {};
+      (rows[r] || []).forEach((cell, c) => {
+        const name = cellText(cell).replace(/\s+/g, ' ');
+        if (!name) return;
+        for (const [key, re] of COLUMN_HINTS) {
+          if (cols[key] === undefined && re.test(name)) {
+            cols[key] = c;
+            break;
+          }
+        }
+      });
+      if (cols.date !== undefined && (cols.amount !== undefined || cols.out !== undefined || cols.in !== undefined)) return { row: r, cols };
+    }
+    return null;
+  }
+
+  // 엑셀 날짜 일련번호(45928 등) 또는 "2026.09.28 14:02" 같은 글자 → { date, time }
+  function parseDateCell(v) {
+    if (typeof v === 'number' && v > 20000 && v < 80000) {
+      const ms = Math.round((v - 25569) * 86400000);
+      const d = new Date(ms);
+      return {
+        date: toISO(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()),
+        time: Number.isInteger(v) ? '' : `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`,
+      };
+    }
+    const s = cellText(v);
+    const m = s.match(/(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/);
+    if (!m) return null;
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (!validDate(y, mo, d)) return null;
+    const t = s.slice(m.index + m[0].length).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    return { date: toISO(y, mo, d), time: t ? `${pad(t[1])}:${t[2]}:${t[3] || '00'}` : '' };
+  }
+
+  function parseAmountCell(v) {
+    if (typeof v === 'number') return v;
+    let s = cellText(v).replace(/[,\s원]/g, '');
+    if (!s) return null;
+    let neg = false;
+    if (/^\(.*\)$/.test(s)) {
+      neg = true;
+      s = s.slice(1, -1);
+    }
+    const n = Number(s);
+    if (!Number.isFinite(n)) return null;
+    return neg ? -n : n;
+  }
+
+  /*
+   * 거래내역 표(2차원 배열)를 내역으로 바꾼다.
+   * opts: { myName, accountId }
+   * 반환: { items: [{date, time, amount, memo, kind, accountId, balance, raw}], skipped, header, latest: {date, time, balance} | null }
+   */
+  function parseStatementRows(rows, opts = {}) {
+    const header = findHeader(rows);
+    if (!header) return { items: [], skipped: 0, header: null, latest: null };
+    const { cols } = header;
+    const get = (row, key) => (cols[key] === undefined ? '' : row[cols[key]]);
+    const items = [];
+    let skipped = 0;
+    let latest = null;
+    // 금액 한 칸에 출금은 음수로 적는 파일인지 (그렇다면 양수는 입금)
+    const signed = cols.amount !== undefined && rows.slice(header.row + 1).some((row) => (parseAmountCell((row || [])[cols.amount]) || 0) < 0);
+
+    for (let r = header.row + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      if (!row.some((c) => cellText(c))) continue;
+      const when = parseDateCell(get(row, 'date'));
+      if (!when) {
+        skipped += 1;
+        continue;
+      }
+      if (!when.time && cols.time !== undefined) {
+        const t = cellText(get(row, 'time')).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (t) when.time = `${pad(t[1])}:${t[2]}:${t[3] || '00'}`;
+      }
+
+      const typeText = cellText(get(row, 'type'));
+      const categoryText = cellText(get(row, 'category'));
+      const out = parseAmountCell(get(row, 'out'));
+      const inn = parseAmountCell(get(row, 'in'));
+      const amt = parseAmountCell(get(row, 'amount'));
+
+      let kind;
+      let amount;
+      if (out) {
+        kind = 'expense';
+        amount = Math.abs(out);
+      } else if (inn) {
+        kind = 'income';
+        amount = Math.abs(inn);
+      } else if (amt) {
+        amount = Math.abs(amt);
+        if (/입금/.test(typeText)) kind = 'income';
+        else if (/출금|지급/.test(typeText)) kind = 'expense';
+        else if (amt < 0) kind = 'expense';
+        else kind = signed ? 'income' : 'expense';
+      } else {
+        skipped += 1;
+        continue;
+      }
+
+      const memoMain = cellText(get(row, 'memo'));
+      const note = cellText(get(row, 'note'));
+      const memo = memoMain || note || categoryText || '(내용 없음)';
+      const allText = `${typeText} ${categoryText} ${memo} ${note}`;
+
+      // 카드 결제 취소·환불로 들어온 돈은 지출을 줄이는 것으로 본다
+      if (kind === 'income' && /취소|환불/.test(allText)) {
+        kind = 'expense';
+        amount = -amount;
+      }
+      if (opts.myName && memo.includes(opts.myName) && !/카드|결제|승인/.test(allText)) kind = 'transfer';
+
+      const balance = parseAmountCell(get(row, 'balance'));
+      const item = {
+        date: when.date,
+        time: when.time,
+        amount,
+        memo,
+        kind,
+        accountId: opts.accountId || null,
+        balance: Number.isFinite(balance) ? balance : null,
+        raw: row.map(cellText).filter(Boolean).join(' | ').slice(0, 300),
+      };
+      items.push(item);
+      if (item.balance !== null) {
+        const key = `${item.date} ${item.time}`;
+        if (!latest || key >= `${latest.date} ${latest.time}`) latest = { date: item.date, time: item.time, balance: item.balance };
+      }
+    }
+    return { items, skipped, header, latest };
+  }
+
+  // CSV 글자 → 2차원 배열 (따옴표 안의 쉼표·줄바꿈 처리)
+  function parseCSV(text) {
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let quoted = false;
+    const s = String(text || '').replace(/^﻿/, '');
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (quoted) {
+        if (ch === '"' && s[i + 1] === '"') {
+          cell += '"';
+          i += 1;
+        } else if (ch === '"') quoted = false;
+        else cell += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === ',' || ch === '\t') {
+        row.push(cell);
+        cell = '';
+      } else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && s[i + 1] === '\n') i += 1;
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = '';
+      } else cell += ch;
+    }
+    if (cell || row.length) {
+      row.push(cell);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  // 알림으로 이미 들어온 내역인지: 정확히 같거나, 같은 날·같은 금액·같은 종류이면서 사용처가 겹치거나 같은 계좌
+  function findDuplicate(item, transactions) {
+    const memo = normalizeMerchant(item.memo);
+    return transactions.find((t) => {
+      if (t.date !== item.date || Math.abs(t.amount) !== Math.abs(item.amount)) return false;
+      if (kindOf(t) !== kindOf(item)) return false;
+      const tm = normalizeMerchant(t.memo);
+      if (tm === memo || (tm && memo && (tm.includes(memo) || memo.includes(tm)))) return true;
+      return !!(item.accountId && t.accountId === item.accountId);
+    }) || null;
+  }
+
   // ---------- 리포트 ----------
 
   // 항목별 지출 (많이 쓴 순). 색은 계획 안의 순서(colorIndex)로 정해 순위가 바뀌어도 같은 항목은 같은 색.
@@ -1502,6 +1714,9 @@ td.memo { min-width: 120px; word-break: break-all; }
     readClassifyResponse,
     buildMessageRequest,
     readMessageResponse,
+    parseStatementRows,
+    parseCSV,
+    findDuplicate,
     categoryBreakdown,
     compareWithPrevious,
     topMerchants,
@@ -1612,6 +1827,157 @@ td.memo { min-width: 120px; word-break: break-all; }
   }
 
   root.BudgetCharts = { seriesColor, shortWon, tinyWon, shareSegments, shareBar, trendChart };
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
+  <script>
+/* 엑셀(.xlsx) 첫 번째 시트를 2차원 배열로 읽는다. 외부 라이브러리 없이 브라우저 기능만 쓴다.
+ * .xlsx 는 zip 안에 XML 이 든 파일이라, zip 을 풀고(DecompressionStream) XML 을 읽는다(DOMParser).
+ */
+(function (root) {
+  'use strict';
+
+  function fail(code, message) {
+    const e = new Error(message);
+    e.code = code;
+    return e;
+  }
+
+  async function inflateRaw(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw fail('unsupported', '이 브라우저는 엑셀 파일을 풀 수 없어요. 최신 크롬·사파리를 쓰거나, 엑셀에서 CSV 로 저장해 올려 주세요.');
+    }
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  // zip 안의 파일 목록 → { 이름: async () => 내용(Uint8Array) }
+  function readZipDirectory(buf) {
+    const view = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+    let eocd = -1;
+    for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
+      if (view.getUint32(i, true) === 0x06054b50) {
+        eocd = i;
+        break;
+      }
+    }
+    if (eocd < 0) throw fail('format', '엑셀 파일 구조를 읽지 못했어요.');
+    const count = view.getUint16(eocd + 10, true);
+    let p = view.getUint32(eocd + 16, true);
+    const files = {};
+    const decoder = new TextDecoder();
+    for (let n = 0; n < count; n++) {
+      if (view.getUint32(p, true) !== 0x02014b50) break;
+      const method = view.getUint16(p + 10, true);
+      const compSize = view.getUint32(p + 20, true);
+      const nameLen = view.getUint16(p + 28, true);
+      const extraLen = view.getUint16(p + 30, true);
+      const commentLen = view.getUint16(p + 32, true);
+      const local = view.getUint32(p + 42, true);
+      const name = decoder.decode(bytes.subarray(p + 46, p + 46 + nameLen));
+      files[name] = async () => {
+        const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+        const data = bytes.subarray(start, start + compSize);
+        if (method === 0) return data;
+        if (method === 8) return inflateRaw(data);
+        throw fail('format', '지원하지 않는 압축 방식이에요.');
+      };
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    return files;
+  }
+
+  async function readXml(files, name) {
+    if (!files[name]) return null;
+    const text = new TextDecoder().decode(await files[name]());
+    return new DOMParser().parseFromString(text, 'application/xml');
+  }
+
+  const tags = (node, name) => Array.from(node.getElementsByTagName(name));
+
+  function columnIndex(ref) {
+    const letters = String(ref || '').match(/^[A-Z]+/);
+    if (!letters) return -1;
+    let n = 0;
+    for (const ch of letters[0]) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n - 1;
+  }
+
+  // 첫 번째 시트의 경로 (workbook.xml 의 첫 sheet → 관계 파일에서 실제 경로)
+  async function firstSheetPath(files) {
+    const wb = await readXml(files, 'xl/workbook.xml');
+    const rels = await readXml(files, 'xl/_rels/workbook.xml.rels');
+    if (wb && rels) {
+      const sheet = tags(wb, 'sheet')[0];
+      const rid = sheet && (sheet.getAttribute('r:id') || sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id'));
+      const rel = tags(rels, 'Relationship').find((r) => r.getAttribute('Id') === rid);
+      if (rel) {
+        const target = rel.getAttribute('Target').replace(/^\//, '');
+        return target.startsWith('xl/') ? target : `xl/${target}`;
+      }
+    }
+    return Object.keys(files).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort()[0];
+  }
+
+  async function readXlsx(arrayBuffer) {
+    const head = new Uint8Array(arrayBuffer.slice(0, 4));
+    // D0 CF 11 E0: 비밀번호가 걸린 엑셀이거나 옛날 .xls 형식
+    if (head[0] === 0xd0 && head[1] === 0xcf && head[2] === 0x11 && head[3] === 0xe0) {
+      throw fail('encrypted', '비밀번호가 걸린 엑셀(또는 옛날 .xls) 파일이에요. 엑셀이나 구글 시트에서 열어 비밀번호 없이 .xlsx 또는 CSV 로 다시 저장한 뒤 올려 주세요.');
+    }
+    if (!(head[0] === 0x50 && head[1] === 0x4b)) throw fail('format', '엑셀(.xlsx) 파일이 아니에요.');
+
+    const files = readZipDirectory(arrayBuffer);
+    const shared = [];
+    const sst = await readXml(files, 'xl/sharedStrings.xml');
+    if (sst) {
+      for (const si of tags(sst, 'si')) {
+        // 읽는 법 표시(rPh) 안의 글자는 빼고 합친다
+        shared.push(tags(si, 't').filter((t) => !(t.parentNode && t.parentNode.nodeName === 'rPh')).map((t) => t.textContent).join(''));
+      }
+    }
+    const path = await firstSheetPath(files);
+    const sheet = path && (await readXml(files, path));
+    if (!sheet) throw fail('format', '시트를 찾지 못했어요.');
+
+    const rows = [];
+    for (const row of tags(sheet, 'row')) {
+      const r = Number(row.getAttribute('r')) - 1;
+      const out = [];
+      tags(row, 'c').forEach((c, i) => {
+        const col = c.getAttribute('r') ? columnIndex(c.getAttribute('r')) : i;
+        const type = c.getAttribute('t');
+        const v = tags(c, 'v')[0];
+        let value = '';
+        if (type === 's') value = shared[Number(v && v.textContent)] || '';
+        else if (type === 'inlineStr') value = tags(c, 't').map((t) => t.textContent).join('');
+        else if (type === 'str' || type === 'b' || type === 'e') value = v ? v.textContent : '';
+        else if (v) value = Number(v.textContent);
+        out[col] = value;
+      });
+      rows[r >= 0 ? r : rows.length] = out;
+    }
+    return Array.from(rows, (r) => Array.from(r || [], (c) => (c === undefined ? '' : c)));
+  }
+
+  // 파일 하나를 읽어 2차원 배열로. CSV 는 글자 그대로(한글 엑셀 CSV 는 EUC-KR 인 경우가 많아 같이 시도)
+  async function readTableFile(file) {
+    const buf = await file.arrayBuffer();
+    const head = new Uint8Array(buf.slice(0, 4));
+    const isZipOrOle = (head[0] === 0x50 && head[1] === 0x4b) || (head[0] === 0xd0 && head[1] === 0xcf);
+    if (isZipOrOle || /\.xlsx?$/i.test(file.name)) return readXlsx(buf);
+    let text = new TextDecoder('utf-8').decode(buf);
+    if (text.includes('�')) {
+      try {
+        text = new TextDecoder('euc-kr').decode(buf);
+      } catch (e) {
+        /* utf-8 그대로 */
+      }
+    }
+    return root.BudgetLogic.parseCSV(text);
+  }
+
+  root.BudgetXlsx = { readXlsx, readTableFile };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 </script>
   <script>
@@ -2013,8 +2379,6 @@ td.memo { min-width: 120px; word-break: break-all; }
   let currentPage = 'home';
   let selectedDate = null;
   const listState = { search: '', kind: 'all', category: 'all', account: 'all' };
-  let parsedItems = [];
-  let parsedSkipped = [];
   let manualKind = 'expense';
 
   const planForDate = (date) => store.planForDate(date);
@@ -2754,6 +3118,8 @@ td.memo { min-width: 120px; word-break: break-all; }
     sel.value = [...sel.options].some((o) => o.value === prev) ? prev : '__auto';
     const acc = $('#m-account').value;
     $('#m-account').innerHTML = accountOptions(acc);
+    const fileAcc = $('#file-account').value || (S().accounts.find((a) => a.type !== 'card') || {}).id || '';
+    $('#file-account').innerHTML = accountOptions(fileAcc, '계좌 선택 안 함');
     $('#m-memo').placeholder = manualKind === 'income' ? '(주)회사 급여' : manualKind === 'transfer' ? '적금 계좌로' : '스타벅스 강남점';
     updateManualHint();
     renderParseResult();
@@ -2810,75 +3176,159 @@ td.memo { min-width: 120px; word-break: break-all; }
     render();
   }
 
+  // 붙여넣기와 파일 가져오기가 같은 미리보기를 쓴다. preview.source: 'paste' | 'file'
+  const preview = { source: 'paste', items: [], skipped: [], latest: null, accountId: null, fileName: '' };
+
+  function clearPreview() {
+    Object.assign(preview, { items: [], skipped: [], latest: null, accountId: null, fileName: '' });
+    renderParseResult();
+  }
+
+  // 지출만 분류한다. 서버(AI)는 여러 번에 나눠 보낸다.
+  async function classifyPreview(items) {
+    const expenses = items.filter((it) => it.kind === 'expense');
+    const step = store.mode === 'remote' ? 60 : expenses.length || 1;
+    for (let i = 0; i < expenses.length; i += step) {
+      const chunk = expenses.slice(i, i + step);
+      if (store.aiEnabled && expenses.length > step) toast(`AI가 분류하는 중… (${Math.min(i + step, expenses.length)}/${expenses.length})`, 60000);
+      const res = await store.classify(chunk.map(({ date, amount, memo }) => ({ date, amount, memo })));
+      chunk.forEach((it, k) => Object.assign(it, res[k]));
+    }
+  }
+
+  function withDupFlags(items) {
+    return items.map((it) => {
+      const dup = !!L.findDuplicate(it, S().transactions);
+      return { categoryId: null, method: null, ...it, dup, checked: !dup };
+    });
+  }
+
   async function onParse() {
     const { items, skipped } = L.parseExpenseText($('#paste-input').value, L.todayISO());
-    parsedSkipped = skipped;
-    parsedItems = items.map((it) => ({ ...it, categoryId: null, method: null, checked: !L.isDuplicate(it, S().transactions), dup: L.isDuplicate(it, S().transactions) }));
-    if (parsedItems.length) {
-      const res = await busy(store.aiEnabled ? `AI가 ${parsedItems.length}건을 분류하는 중…` : null, () =>
-        store.classify(parsedItems.map(({ date, amount, memo }) => ({ date, amount, memo })))
-      );
-      parsedItems.forEach((it, i) => Object.assign(it, res[i]));
+    Object.assign(preview, { source: 'paste', skipped, latest: null, accountId: null, fileName: '' });
+    preview.items = withDupFlags(items.map((it) => ({ ...it, kind: 'expense' })));
+    if (preview.items.length) await busy(store.aiEnabled ? `AI가 ${preview.items.length}건을 분류하는 중…` : null, () => classifyPreview(preview.items));
+    renderParseResult();
+  }
+
+  async function onFileChosen(file) {
+    const accountId = $('#file-account').value || null;
+    let rows;
+    try {
+      rows = await window.BudgetXlsx.readTableFile(file);
+    } catch (e) {
+      return toast(e.message || '파일을 읽지 못했어요.', 7000);
+    }
+    const parsed = L.parseStatementRows(rows, { myName: S().settings.myName, accountId });
+    if (!parsed.header) return toast('거래내역 표를 찾지 못했어요. 날짜와 금액 칸이 있는 은행 거래내역 파일인지 확인해 주세요.', 7000);
+    Object.assign(preview, { source: 'file', skipped: [], latest: parsed.latest, accountId, fileName: file.name });
+    preview.items = withDupFlags(parsed.items);
+    if (parsed.skipped) preview.skipped = [`날짜를 읽지 못한 줄 ${parsed.skipped}개`];
+    if (preview.items.length) {
+      await busy(store.aiEnabled ? `AI가 ${preview.items.filter((x) => x.kind === 'expense').length}건을 분류하는 중…` : null, () => classifyPreview(preview.items));
     }
     renderParseResult();
   }
 
+  const KIND_LABEL = { income: '입금', transfer: '내 계좌 이체' };
+
   function renderParseResult() {
-    const el = $('#parse-result');
-    if (!parsedItems.length && !parsedSkipped.length) {
-      el.innerHTML = '';
+    const target = preview.source === 'file' ? $('#file-result') : $('#parse-result');
+    const other = preview.source === 'file' ? $('#parse-result') : $('#file-result');
+    other.innerHTML = '';
+    if (!preview.items.length && !preview.skipped.length) {
+      target.innerHTML = '';
       return;
     }
-    const rows = parsedItems.map((it, i) => `
+    const items = preview.items;
+    const rows = items.map((it, i) => `
       <tr>
         <td><input type="checkbox" data-i="${i}" class="p-check" ${it.checked ? 'checked' : ''} aria-label="추가"></td>
         <td><input type="date" data-i="${i}" class="p-date" value="${it.date}"></td>
-        <td class="memo">${esc(it.memo)} ${it.dup ? '<span class="tag warn">중복?</span>' : ''} ${methodTag(it.method)}</td>
-        <td class="amount ${it.amount < 0 ? 'refund' : ''}">${won(it.amount)}</td>
-        <td><select data-i="${i}" class="p-cat">${categoryOptions(planForDate(it.date).categories, it.categoryId)}</select></td>
+        <td class="memo">${esc(it.memo)} ${it.dup ? '<span class="tag warn">중복?</span>' : ''} ${it.kind === 'expense' ? methodTag(it.method) : ''}</td>
+        <td class="amount ${it.kind === 'income' || it.amount < 0 ? 'refund' : ''}">${it.kind === 'income' ? '+' : ''}${won(it.amount)}</td>
+        <td>${it.kind === 'expense'
+          ? `<select data-i="${i}" class="p-cat">${categoryOptions(planForDate(it.date).categories, it.categoryId)}</select>`
+          : `<span class="tag">${KIND_LABEL[it.kind]}</span>`}</td>
       </tr>`).join('');
-    el.innerHTML = `
-      ${parsedItems.length ? `
+    const dups = items.filter((x) => x.dup).length;
+    const dates = items.map((x) => x.date).sort();
+    const summary = preview.source === 'file' && items.length
+      ? `<p class="small">${esc(preview.fileName)} · ${fmtDate(dates[0])} ~ ${fmtDate(dates[dates.length - 1])} · ${items.length}건${dups ? ` (이미 있는 내역으로 보이는 ${dups}건은 빼 두었어요)` : ''}${preview.latest ? ` · 마지막 잔액 ${won(preview.latest.balance)}` : ''}</p>`
+      : '';
+    target.innerHTML = `
+      ${summary}
+      ${items.length ? `
+      <div class="row-actions">
+        <button class="ghost-btn small-btn" id="p-all">모두 선택</button>
+        <button class="ghost-btn small-btn" id="p-none">모두 해제</button>
+      </div>
       <div class="table-wrap">
         <table class="stack-table parse-table">
           <thead><tr><th></th><th>날짜</th><th>사용처</th><th class="amount">금액</th><th>항목</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <div class="row-actions"><button id="p-add" class="primary-btn">선택한 ${parsedItems.filter((x) => x.checked).length}건 추가</button></div>` : ''}
-      ${parsedSkipped.length ? `<p class="muted small">금액을 찾지 못해 건너뛴 줄 ${parsedSkipped.length}개: ${parsedSkipped.map(esc).join(' / ')}</p>` : ''}`;
+      <div class="row-actions"><button id="p-add" class="primary-btn">선택한 ${items.filter((x) => x.checked).length}건 추가</button></div>` : ''}
+      ${preview.skipped.length ? `<p class="muted small">건너뛴 줄 ${preview.skipped.length}개: ${preview.skipped.map(esc).join(' / ')}</p>` : ''}`;
 
-    el.querySelectorAll('.p-check').forEach((c) => c.addEventListener('change', () => {
-      parsedItems[c.dataset.i].checked = c.checked;
+    const setAll = (v) => {
+      items.forEach((x) => (x.checked = v));
+      renderParseResult();
+    };
+    if ($('#p-all')) $('#p-all').addEventListener('click', () => setAll(true));
+    if ($('#p-none')) $('#p-none').addEventListener('click', () => setAll(false));
+    target.querySelectorAll('.p-check').forEach((c) => c.addEventListener('change', () => {
+      items[c.dataset.i].checked = c.checked;
       renderParseResult();
     }));
-    el.querySelectorAll('.p-date').forEach((c) => c.addEventListener('change', () => (parsedItems[c.dataset.i].date = c.value)));
-    el.querySelectorAll('.p-cat').forEach((c) => c.addEventListener('change', () => {
-      const it = parsedItems[c.dataset.i];
+    target.querySelectorAll('.p-date').forEach((c) => c.addEventListener('change', () => (items[c.dataset.i].date = c.value)));
+    target.querySelectorAll('.p-cat').forEach((c) => c.addEventListener('change', () => {
+      const it = items[c.dataset.i];
       it.categoryId = c.value || null;
       it.method = c.value ? 'manual' : null;
     }));
     const addBtn = $('#p-add');
-    if (addBtn) addBtn.addEventListener('click', quiet(async () => {
-      const chosen = parsedItems.filter((x) => x.checked && x.date);
-      if (!chosen.length) return toast('추가할 항목을 선택해 주세요.');
-      let learned = false;
-      for (const it of chosen) {
-        if (it.method === 'manual' && it.categoryId) {
-          S().merchantMap[L.normalizeMerchant(it.memo)] = it.categoryId;
-          learned = true;
-        }
+    if (addBtn) addBtn.addEventListener('click', quiet(addPreviewItems));
+  }
+
+  async function addPreviewItems() {
+    const chosen = preview.items.filter((x) => x.checked && x.date);
+    if (!chosen.length) return toast('추가할 내역을 선택해 주세요.');
+    let changedMeta = false;
+    for (const it of chosen) {
+      if (it.method === 'manual' && it.categoryId) {
+        S().merchantMap[L.normalizeMerchant(it.memo)] = it.categoryId;
+        changedMeta = true;
       }
-      if (learned) store.saveMeta();
-      await busy('저장하는 중…', () =>
-        store.addTransactions(chosen.map((it) => ({ date: it.date, amount: it.amount, memo: it.memo, kind: 'expense', categoryId: it.categoryId, method: it.method, source: 'paste', raw: it.raw })))
+    }
+    // 파일의 마지막 잔액이 지금 알고 있는 잔액보다 최근이면 계좌 잔액을 바꾼다
+    const acc = preview.accountId && S().accounts.find((a) => a.id === preview.accountId);
+    if (acc && preview.latest) {
+      const at = new Date(`${preview.latest.date}T${preview.latest.time || '23:59:59'}+09:00`).toISOString();
+      if (!acc.balanceAt || at > acc.balanceAt) {
+        acc.balance = preview.latest.balance;
+        acc.balanceAt = at;
+        changedMeta = true;
+      }
+    }
+    if (changedMeta) store.saveMeta();
+    const source = preview.source === 'file' ? 'file' : 'paste';
+    for (let i = 0; i < chosen.length; i += 200) {
+      const part = chosen.slice(i, i + 200);
+      await busy(`저장하는 중… (${Math.min(i + 200, chosen.length)}/${chosen.length})`, () =>
+        store.addTransactions(part.map((it) => ({
+          date: it.date, amount: it.amount, memo: it.memo, kind: it.kind || 'expense', accountId: it.accountId || null,
+          categoryId: it.kind === 'expense' ? it.categoryId : null, method: it.method, source, raw: it.raw,
+        })))
       );
-      parsedItems = [];
-      parsedSkipped = [];
-      $('#paste-input').value = '';
-      toast(`${chosen.length}건을 추가했습니다.`);
-      jumpToDate(chosen[0].date);
-    }));
+    }
+    const latestDate = chosen.map((x) => x.date).sort().pop();
+    if (preview.source === 'paste') $('#paste-input').value = '';
+    else $('#file-input').value = '';
+    clearPreview();
+    toast(`${chosen.length}건을 추가했습니다.`);
+    jumpToDate(latestDate);
   }
 
   // ---------- 설정 ----------
@@ -3108,10 +3558,11 @@ td.memo { min-width: 120px; word-break: break-all; }
     $('#parse-btn').addEventListener('click', quiet(onParse));
     $('#paste-clear').addEventListener('click', () => {
       $('#paste-input').value = '';
-      parsedItems = [];
-      parsedSkipped = [];
-      renderParseResult();
+      clearPreview();
     });
+    $('#file-input').addEventListener('change', quiet(async (e) => {
+      if (e.target.files[0]) await onFileChosen(e.target.files[0]);
+    }));
 
     // 내역
     const setFilter = (key, value) => {

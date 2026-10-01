@@ -226,6 +226,15 @@
             </div>
             <div id="parse-result"></div>
           </div>
+          <div class="card">
+            <h2>은행 거래내역 파일 가져오기</h2>
+            <p class="muted small">카카오뱅크: 앱에서 계좌 선택 → 오른쪽 위 설정(톱니바퀴) → <b>거래내역</b> → 이메일과 기간을 넣고 받기. 메일로 온 엑셀(.xlsx)이나 CSV 파일을 그대로 올리세요. 다른 은행 파일도 날짜·금액 칸이 있으면 읽습니다. 알림으로 이미 들어온 내역은 <b>중복?</b>으로 표시하고 빼 둡니다.</p>
+            <div class="form-grid">
+              <label>어느 계좌의 내역인가요<select id="file-account"></select></label>
+              <label>파일<input type="file" id="file-input" accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+            </div>
+            <div id="file-result"></div>
+          </div>
         </section>
 
         <!-- 설정 -->
@@ -290,6 +299,7 @@
   <script>/*__SERVER_CONFIG__*/</script>
   <script src="js/logic.js"></script>
   <script src="js/charts.js"></script>
+  <script src="js/xlsx.js"></script>
   <script src="js/store.js"></script>
   <script src="js/app.js"></script>
 </body>

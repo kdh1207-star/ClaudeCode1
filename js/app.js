@@ -1145,21 +1145,50 @@
   function renderAutoCard() {
     const card = $('#set-auto');
     if (store.mode === 'remote') {
+      const MODEL_LABEL = { 'claude-opus-5-5': 'Claude Opus 5.5 (기본, 가장 정확)', 'claude-haiku-4-5': 'Claude Haiku 4.5 (저렴, 약 1/4 비용)' };
       card.innerHTML = `
         <h2>자동 입력</h2>
-        <p class="small">내역은 구글 시트에 저장되고, ${store.aiEnabled ? '<b>Claude AI가 분류</b>합니다.' : '<b>AI 키가 없어 키워드로 분류</b>합니다. Apps Script 스크립트 속성에 ANTHROPIC_API_KEY 를 넣으면 AI 분류가 켜져요.'}</p>
+        <h3>Claude AI 분류</h3>
+        <p class="small">${store.aiEnabled ? '<b>켜져 있어요.</b> 알림과 붙여넣은 내역을 AI가 예산 항목에 맞춰 분류합니다.' : '<b>꺼져 있어요.</b> 지금은 키워드로 분류합니다. 아래에 Claude API 키를 넣으면 켜져요. 키는 console.anthropic.com 에서 결제 수단을 등록한 뒤 API Keys 메뉴에서 만들 수 있어요.'}</p>
+        <form id="ai-form" class="form-grid">
+          <label class="wide">Claude API 키<input type="password" id="ai-key" autocomplete="off" placeholder="${store.aiEnabled ? '저장됨 (바꾸려면 새 키 입력)' : 'sk-ant-…'}"></label>
+          <div class="form-submit"><button type="submit" class="primary-btn">확인하고 저장</button></div>
+        </form>
+        ${store.aiEnabled ? `<div class="form-grid" style="margin-top:12px"><label class="wide">사용할 모델<select id="ai-model">${(store.aiModels.length ? store.aiModels : [store.aiModel]).map((m) => `<option value="${esc(m)}" ${m === store.aiModel ? 'selected' : ''}>${esc(MODEL_LABEL[m] || m)}</option>`).join('')}</select></label></div>` : ''}
+        ${store.aiError ? `<p class="muted small">최근 AI 오류: ${esc(store.aiError)}</p>` : ''}
         <h3>① 카드 결제 문자</h3>
-        <p class="muted small">MacroDroid 트리거 <b>SMS 수신</b> → 동작 <b>HTTP 요청</b>(POST, 본문 = SMS 메시지)에 이 주소를 넣으세요.</p>
+        <p class="muted small">MacroDroid 트리거 <b>SMS 수신</b> → 동작 <b>HTTP 요청</b>(POST, 본문 = SMS 메시지)에 이 주소를 넣으세요. 카카오뱅크 체크카드만 쓴다면 ②만 해도 됩니다.</p>
         <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl(''))}" id="url-sms"><button class="ghost-btn" data-copy="url-sms">복사</button></div>
-        <h3>② 은행 앱 입출금 알림 (계좌 이체)</h3>
-        <p class="muted small">MacroDroid 트리거 <b>알림 수신</b>(은행 앱·토스 선택) → 동작 <b>HTTP 요청</b>(POST, 본문 = 알림 제목과 알림 텍스트)에 이 주소를 넣으세요. 계좌·카드에 계좌 끝자리를 등록해 두면 어느 계좌인지 찾고 잔액도 갱신합니다.</p>
+        <h3>② 은행 앱 입출금 알림 (카카오뱅크 등)</h3>
+        <p class="muted small">MacroDroid 트리거 <b>알림 수신</b>(카카오뱅크 앱 선택) → 동작 <b>HTTP 요청</b>(POST, 본문 = 알림 제목과 알림 텍스트)에 이 주소를 넣으세요. 계좌·카드에 계좌 끝자리를 등록해 두면 어느 계좌인지 찾고 잔액도 갱신합니다.</p>
         <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl('bank'))}" id="url-bank"><button class="ghost-btn" data-copy="url-bank">복사</button></div>
         <p class="muted small">자세한 설정 방법은 저장소의 <b>SETUP.md</b> 에 있어요.</p>
-        ${store.server.embedded ? '' : '<div class="row-actions"><button id="disconnect-btn" class="danger-btn">연결 해제 (이 기기 저장으로)</button></div>'}`;
+        <div class="row-actions">
+          ${store.server.embedded ? '<button id="forget-key-btn" class="ghost-btn small-btn">이 기기에서 접속 키 지우기</button>' : '<button id="disconnect-btn" class="danger-btn">연결 해제 (이 기기 저장으로)</button>'}
+        </div>`;
+      $('#ai-form').addEventListener('submit', quiet(async (e) => {
+        e.preventDefault();
+        const key = $('#ai-key').value.trim();
+        if (!key && !confirm('API 키를 지우고 AI 분류를 끌까요?')) return;
+        await busy('API 키를 확인하는 중…', () => store.setApiKey(key));
+        toast(store.aiEnabled ? 'AI 분류를 켰어요.' : 'AI 분류를 껐어요.');
+        render();
+      }));
+      const modelSel = $('#ai-model');
+      if (modelSel) modelSel.addEventListener('change', quiet(async () => {
+        await busy(null, () => store.setModel(modelSel.value));
+        toast('모델을 바꿨어요.');
+      }));
       card.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', () => {
         const input = $(`#${b.dataset.copy}`);
         copyText(input.value, input);
       }));
+      const fk = $('#forget-key-btn');
+      if (fk) fk.addEventListener('click', () => {
+        if (!confirm('이 기기에서 접속 키를 지울까요? 다음에 열 때 다시 입력해야 해요.')) return;
+        store.forgetKey();
+        location.reload();
+      });
       const dc = $('#disconnect-btn');
       if (dc) dc.addEventListener('click', () => {
         if (!confirm('서버 연결을 해제할까요? 구글 시트의 데이터는 그대로 남아 있습니다.')) return;
@@ -1169,10 +1198,10 @@
     } else {
       card.innerHTML = `
         <h2>자동 입력 (구글 시트 서버 연결)</h2>
-        <p class="muted small">카드 문자·은행 알림 자동 입력과 AI 분류는 구글 시트 서버가 있어야 동작해요. 저장소의 <b>SETUP.md</b> 대로 구글 Apps Script 를 배포한 뒤, 웹앱 주소와 APP_KEY 를 넣으세요. 웹앱 주소(<code>?key=</code> 포함)로 바로 접속해도 됩니다.</p>
+        <p class="muted small">카드 문자·은행 알림 자동 입력과 AI 분류는 구글 시트 서버가 있어야 동작해요. 저장소의 <b>SETUP.md</b> 대로 구글 Apps Script 를 배포한 뒤, 웹앱 주소와 접속 키를 넣으세요. 웹앱 주소로 바로 접속해서 써도 됩니다.</p>
         <form id="connect-form" class="form-grid">
           <label class="wide">웹앱 주소<input type="url" id="c-url" placeholder="https://script.google.com/macros/s/…/exec" required></label>
-          <label>APP_KEY<input type="text" id="c-key" required></label>
+          <label>접속 키<input type="text" id="c-key" required></label>
           <div class="form-submit"><button type="submit" class="primary-btn">연결</button></div>
         </form>`;
       $('#connect-form').addEventListener('submit', quiet(async (e) => {
@@ -1343,9 +1372,41 @@
     }));
   }
 
+  // 구글 웹 앱으로 처음 열었을 때: 접속 키를 한 번 입력받아 이 기기에 기억한다
+  function askKey() {
+    return new Promise((resolve) => {
+      const box = document.createElement('div');
+      box.className = 'key-gate';
+      box.innerHTML = `
+        <form class="card key-card" id="key-form">
+          <h2>접속 키를 입력하세요</h2>
+          <p class="muted small">구글 Apps Script 편집기에서 <b>setup</b> 을 실행하면 실행 기록에 나오는 키예요. 한 번 입력하면 이 기기가 기억해요.</p>
+          <input type="password" id="key-input" autocomplete="current-password" placeholder="접속 키" required>
+          <div class="row-actions"><button type="submit" class="primary-btn">들어가기</button></div>
+          <p class="small warn" id="key-error" hidden></p>
+        </form>`;
+      document.body.appendChild(box);
+      $('#key-input').focus();
+      $('#key-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const err = $('#key-error');
+        err.hidden = true;
+        try {
+          await store.useKey($('#key-input').value.trim());
+          box.remove();
+          resolve();
+        } catch (ex) {
+          err.textContent = /unauthorized/.test(ex.message) ? '키가 맞지 않아요. 다시 확인해 주세요.' : `확인하지 못했어요: ${ex.message}`;
+          err.hidden = false;
+        }
+      });
+    });
+  }
+
   async function start() {
     window.__budgetStarted = true;
     bindEvents();
+    if (store.mode === 'remote' && !store.server.key) await askKey();
     const toMigrate = store.takeMigration();
     try {
       await busy(store.mode === 'remote' ? '불러오는 중…' : null, () => store.init());

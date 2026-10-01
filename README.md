@@ -9,9 +9,9 @@
 | 내역 입력 | **카드 문자·은행 알림 자동 입력** + 붙여넣기 + 직접 입력 | 붙여넣기 + 직접 입력 |
 | 분류 | **Claude AI** (계획 항목·설명 기준) | 키워드 |
 | 저장 위치 | 내 구글 시트 (어느 기기에서나 같은 데이터) | 이 브라우저 |
-| 준비 | [SETUP.md](SETUP.md) 따라 30분 설정 | `budget-app.html` 파일 하나만 열면 끝 |
+| 준비 | [SETUP.md](SETUP.md) 따라 20분 설정 (붙여넣기 1번, 배포 1번) | `budget-app.html` 파일 하나만 열면 끝 |
 
-- **구글 시트 + AI**: [SETUP.md](SETUP.md) 를 따라 구글 Apps Script 를 배포하고, 휴대폰 자동화 앱(MacroDroid)이 카드 문자와 은행 앱 알림을 보내게 설정합니다. 앱은 웹앱 주소(`…/exec?key=…`)로 엽니다.
+- **구글 시트 + AI**: [SETUP.md](SETUP.md) 를 따라 구글 Apps Script 를 배포하고, 휴대폰 자동화 앱(MacroDroid)이 카드 문자와 은행 앱 알림을 보내게 설정합니다. 앱은 웹 앱 주소로 열고, 처음 한 번 접속 키를 입력합니다.
 - **이 기기에만 저장**: [`budget-app.html`](budget-app.html) 을 받아 브라우저로 여세요. 디자인과 기능이 모두 이 파일 하나에 들어 있습니다. (휴대폰 파일 앱에서 누르면 "미리보기"로만 열릴 수 있으니 공유 → 크롬으로 열기를 쓰세요.)
 
 ## 화면
@@ -68,10 +68,9 @@ js/store.js                   저장 (이 기기 / 구글 시트 서버)
 js/charts.js                  차트 (구성 막대, 기간별 추이)
 js/xlsx.js                    엑셀(.xlsx)·CSV 파일 읽기 (외부 라이브러리 없음)
 server/server.js              구글 Apps Script 서버 (시트 저장, 문자 수신, Claude API 호출)
-server/appsscript.json        Apps Script 설정
 scripts/build-standalone.js   배포 파일 생성
 budget-app.html               ← 생성됨: 파일 하나짜리 앱
-apps-script/                  ← 생성됨: Apps Script 에 붙여넣을 Code.gs, Index.html, appsscript.json
+apps-script/Code.gs           ← 생성됨: 구글 Apps Script 에 붙여넣을 파일 하나 (로직 + 서버 + 화면)
 tests/                        테스트
 ```
 

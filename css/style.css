@@ -438,3 +438,8 @@ td.memo { min-width: 120px; word-break: break-all; }
   padding: 10px 16px; border-radius: 10px; z-index: 60; font-size: 14px; max-width: calc(100% - 32px);
 }
 @media (max-width: 900px) { .toast { bottom: calc(80px + env(safe-area-inset-bottom)); } }
+
+/* 처음 접속할 때 키 입력 */
+.key-gate { position: fixed; inset: 0; z-index: 70; background: var(--page); display: grid; place-items: center; padding: 16px; }
+.key-card { width: 100%; max-width: 420px; }
+.key-card input { width: 100%; margin-top: 8px; }

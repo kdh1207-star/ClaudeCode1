@@ -50,11 +50,12 @@ function makeEnv({ props = {}, claude } = {}) {
       getScriptProperties: () => ({
         getProperty: (k) => properties[k] ?? null,
         setProperty: (k, v) => (properties[k] = v),
+        deleteProperty: (k) => delete properties[k],
       }),
     },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Utilities: {
-      getUuid: () => `id-${++uuid}`,
+      getUuid: () => `id-${++uuid}-0000-4000-8000-${String(uuid).padStart(12, '0')}`,
       formatDate: () => '2026-09-29',
     },
     Session: { getScriptTimeZone: () => 'Asia/Seoul' },
@@ -62,6 +63,10 @@ function makeEnv({ props = {}, claude } = {}) {
     Logger: { log() {} },
     UrlFetchApp: {
       fetch(url, opts) {
+        if (/\/v1\/models/.test(url)) {
+          const code = opts.headers['x-api-key'] === 'sk-ant-good' ? 200 : 401;
+          return { getResponseCode: () => code, getContentText: () => '{}' };
+        }
         const body = JSON.parse(opts.payload);
         requests.push({ url, headers: opts.headers, body });
         const out = claude ? claude(body) : { status: 500, error: 'no fake' };
@@ -77,7 +82,7 @@ function makeEnv({ props = {}, claude } = {}) {
       createTextOutput: (text) => ({ text, setMimeType() { return this; } }),
     },
     HtmlService: {
-      createHtmlOutputFromFile: () => ({ getContent: () => '<script>/*__SERVER_CONFIG__*/</script>' }),
+      createHtmlOutputFromFile: () => { throw new Error('Index 파일 없이 INDEX_HTML 을 써야 함'); },
       createHtmlOutput: (html) => ({ html, setTitle() { return this; }, addMetaTag() { return this; } }),
     },
   };
@@ -95,13 +100,15 @@ test('키가 틀리면 거부한다', () => {
   const env = makeEnv();
   assert.deepEqual(JSON.parse(JSON.stringify(env.api('load', {}, 'wrong'))), { ok: false, error: 'unauthorized' });
   assert.equal(env.sms(SMS, 'wrong').ok, false);
-  assert.match(env.ctx.doGet({ parameter: { key: 'nope' } }).html, /접속 키가 올바르지 않습니다/);
+  // 화면은 열리지만 틀린 키는 넣어 주지 않는다 (앱이 키를 다시 묻는다)
+  assert.match(env.ctx.doGet({ parameter: { key: 'nope' } }).html, /window\.__BUDGET_SERVER__ = \{"key":"",/);
 });
 
 test('웹앱 화면에 서버 설정을 넣어 준다', () => {
   const env = makeEnv();
   const out = env.ctx.doGet({ parameter: { key: 'secret' } });
   assert.match(out.html, /window\.__BUDGET_SERVER__ = \{"key":"secret","url":"https:\/\/script\.google\.com\/macros\/s\/X\/exec"\}/);
+  assert.match(out.html, /<div class="app">/); // 화면 전체가 Code.gs 안에 들어 있다
 });
 
 test('카드 문자 → Claude 가 읽고 분류해서 시트에 기록', () => {
@@ -293,4 +300,38 @@ test('입금·내 계좌 이체는 지출 분류·재분류 대상이 아니다'
   const r = env.api('reclassify', { start: '2026-09-01', end: '2026-09-30' });
   assert.equal(r.updated.length, 0);
   assert.equal(env.sheets['지출'].rows[1][5], '입금');
+});
+
+test('setup: 접속 키가 없으면 만들어 주고, 있으면 그대로 보여준다', () => {
+  const env = makeEnv({ props: { APP_KEY: '' } });
+  const msg = env.ctx.setup();
+  const key = env.properties.APP_KEY;
+  assert.ok(key && key.length >= 20);
+  assert.ok(msg.includes(key));
+  env.ctx.setup();
+  assert.equal(env.properties.APP_KEY, key);
+  assert.ok(env.sheets['지출'] && env.sheets['설정']);
+});
+
+test('앱 설정에서 Claude API 키 넣기·지우기, 모델 바꾸기', () => {
+  const env = makeEnv();
+  const off = env.api('ping');
+  assert.equal(off.ai, false);
+  assert.equal(off.model, 'claude-opus-5-5');
+  assert.deepEqual([...off.models], ['claude-opus-5-5', 'claude-haiku-4-5']);
+
+  assert.match(env.api('setApiKey', { apiKey: 'hello' }).error, /sk-ant-/);
+  assert.match(env.api('setApiKey', { apiKey: 'sk-ant-bad' }).error, /올바르지 않아요/);
+  assert.equal(env.properties.ANTHROPIC_API_KEY, undefined);
+
+  env.properties.LAST_AI_ERROR = '예전 오류';
+  const on = env.api('setApiKey', { apiKey: 'sk-ant-good' });
+  assert.equal(on.ai, true);
+  assert.equal(on.lastError, '');
+  assert.equal(env.properties.ANTHROPIC_API_KEY, 'sk-ant-good');
+  assert.equal(JSON.stringify(on).includes('sk-ant-good'), false); // 키를 화면으로 돌려주지 않는다
+
+  assert.equal(env.api('setModel', { model: 'claude-haiku-4-5' }).model, 'claude-haiku-4-5');
+  assert.match(env.api('setModel', { model: 'gpt' }).error, /지원하지 않는/);
+  assert.equal(env.api('setApiKey', { apiKey: '' }).ai, false);
 });

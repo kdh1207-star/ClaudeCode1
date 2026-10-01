@@ -14,8 +14,20 @@
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const nowISO = () => new Date().toISOString();
 
+  const KEY_STORE = 'budget-app-key';
+
   function readServerConfig() {
-    if (root.__BUDGET_SERVER__ && root.__BUDGET_SERVER__.key) return { ...root.__BUDGET_SERVER__, embedded: true };
+    // 구글 Apps Script 가 화면을 직접 줄 때: 키는 주소(?key=) 또는 이 기기에 기억한 값
+    if (root.__BUDGET_SERVER__) {
+      let key = root.__BUDGET_SERVER__.key || '';
+      try {
+        if (key) localStorage.setItem(KEY_STORE, key);
+        else key = localStorage.getItem(KEY_STORE) || '';
+      } catch (e) {
+        /* 기억 못 하면 매번 입력 */
+      }
+      return { ...root.__BUDGET_SERVER__, key, embedded: true };
+    }
     try {
       const raw = localStorage.getItem(SERVER_KEY);
       const c = raw ? JSON.parse(raw) : null;
@@ -31,6 +43,9 @@
     mode: server ? 'remote' : 'local',
     server,
     aiEnabled: false,
+    aiModel: '',
+    aiModels: [],
+    aiError: '',
     serviceUrl: server ? server.url : '',
     state: L.defaultState(),
     onError: () => {},
@@ -90,6 +105,14 @@
     }
   }
 
+  function applyStatus(r) {
+    store.aiEnabled = !!r.ai;
+    store.aiModel = r.model || '';
+    store.aiModels = r.models || [];
+    store.aiError = r.lastError || '';
+    if (r.url) store.serviceUrl = r.url;
+  }
+
   function isExpense(it) {
     return !it.kind || it.kind === 'expense';
   }
@@ -105,8 +128,40 @@
       }
       const r = await callApi('load');
       store.state = L.normalizeState(r.state);
-      store.aiEnabled = !!r.ai;
-      if (r.url) store.serviceUrl = r.url;
+      applyStatus(r);
+    },
+
+    // 처음 접속할 때 입력한 키가 맞는지 확인하고 기억한다
+    async useKey(key) {
+      const prev = server.key;
+      server.key = key;
+      try {
+        applyStatus(await callApi('ping'));
+        try {
+          localStorage.setItem(KEY_STORE, key);
+        } catch (e) {
+          /* 무시 */
+        }
+      } catch (e) {
+        server.key = prev;
+        throw e;
+      }
+    },
+
+    forgetKey() {
+      try {
+        localStorage.removeItem(KEY_STORE);
+      } catch (e) {
+        /* 무시 */
+      }
+    },
+
+    async setApiKey(apiKey) {
+      applyStatus(await callApi('setApiKey', { apiKey }));
+    },
+
+    async setModel(model) {
+      applyStatus(await callApi('setModel', { model }));
     },
 
     // 계획·수입·계좌·학습 정보 저장. 서버에는 입력이 멈춘 뒤 한 번에 보낸다.

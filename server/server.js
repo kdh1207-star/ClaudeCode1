@@ -4,12 +4,12 @@
  * - 휴대폰 자동화 앱(MacroDroid)이 보낸 카드 문자·은행 앱 알림을 받아 Claude 로 읽고 분류해서 기록한다.
  * - 웹앱 화면(Index.html)을 제공하고, 화면의 요청(api)을 처리한다.
  *
- * 빌드 시 js/logic.js 가 이 파일 앞에 붙어 apps-script/Code.gs 가 된다. (BudgetLogic 사용 가능)
+ * 빌드 시 js/logic.js 와 화면(INDEX_HTML)이 이 파일과 합쳐져 apps-script/Code.gs 파일 하나가 된다.
  *
- * 스크립트 속성 (프로젝트 설정 → 스크립트 속성):
- *   APP_KEY            앱 접속/문자 전송용 비밀 키 (아무 긴 문자열)
- *   ANTHROPIC_API_KEY  Claude API 키 (없으면 AI 대신 키워드로 분류)
- *   CLAUDE_MODEL       (선택) 사용할 모델. 기본값 claude-opus-5-5
+ * 스크립트 속성 (직접 넣지 않아도 된다):
+ *   APP_KEY            앱 접속/알림 전송용 비밀 키. setup() 을 실행하면 자동으로 만든다.
+ *   ANTHROPIC_API_KEY  Claude API 키. 앱의 설정 → 자동 입력 화면에서 넣는다. (없으면 키워드로 분류)
+ *   CLAUDE_MODEL       사용할 모델. 앱 설정에서 고른다. 기본값 claude-opus-5-5
  */
 
 var BL = BudgetLogic;
@@ -17,20 +17,17 @@ var TX_SHEET = '지출';
 var META_SHEET = '설정';
 var TX_HEADERS = ['id', 'date', 'amount', 'memo', 'categoryId', 'categoryName', 'method', 'source', 'raw', 'createdAt', 'classifiedAt', 'kind', 'accountId'];
 var DEFAULT_MODEL = 'claude-opus-5-5';
+var MODELS = ['claude-opus-5-5', 'claude-haiku-4-5'];
+var TZ = 'Asia/Seoul';
 var AI_BATCH = 40;
 
 // ---------- 진입점 ----------
 
+// 화면은 항상 내려주고, 데이터는 접속 키가 맞아야만 준다. 키는 처음 한 번 화면에서 입력하면 그 기기가 기억한다.
 function doGet(e) {
   var key = (e && e.parameter && e.parameter.key) || '';
-  if (!checkKey_(key)) {
-    return HtmlService.createHtmlOutput(
-      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-        '<p style="font-family:sans-serif;padding:24px">접속 키가 올바르지 않습니다. 주소 끝의 <code>?key=</code> 값을 확인하세요.</p>'
-    );
-  }
-  var html = HtmlService.createHtmlOutputFromFile('Index').getContent();
-  var config = { key: key, url: ScriptApp.getService().getUrl() };
+  var html = typeof INDEX_HTML !== 'undefined' ? INDEX_HTML : HtmlService.createHtmlOutputFromFile('Index').getContent();
+  var config = { key: checkKey_(key) ? key : '', url: serviceUrl_() };
   html = html.replace('/*__SERVER_CONFIG__*/', 'window.__BUDGET_SERVER__ = ' + JSON.stringify(config) + ';');
   return HtmlService.createHtmlOutput(html)
     .setTitle('내 지출 관리')
@@ -65,15 +62,21 @@ function api(req) {
   }
 }
 
-// 편집기에서 한 번 실행: 시트를 만들고 설정 상태를 알려준다.
+// 편집기에서 한 번 실행: 시트를 만들고, 접속 키가 없으면 새로 만들어 실행 기록에 보여준다.
 function setup() {
   txSheet_();
   saveMeta_(loadMeta_(), true);
   var props = PropertiesService.getScriptProperties();
+  var key = props.getProperty('APP_KEY');
+  if (!key) {
+    key = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '').slice(0, 24);
+    props.setProperty('APP_KEY', key);
+  }
   var msg = [
-    '시트 준비 완료.',
-    'APP_KEY: ' + (props.getProperty('APP_KEY') ? '설정됨' : '없음 ← 스크립트 속성에 추가하세요'),
-    'ANTHROPIC_API_KEY: ' + (props.getProperty('ANTHROPIC_API_KEY') ? '설정됨' : '없음 (AI 분류 꺼짐)'),
+    '준비 완료!',
+    '접속 키: ' + key + '   ← 앱을 처음 열 때 이 키를 입력하세요. (다시 보려면 setup 을 또 실행하면 됩니다)',
+    'Claude API 키: ' + (props.getProperty('ANTHROPIC_API_KEY') ? '설정됨' : '아직 없음 (앱의 설정 → 자동 입력에서 넣을 수 있어요)'),
+    '다음 단계: 오른쪽 위 [배포] → [새 배포] → 웹 앱 (실행: 나, 액세스: 모든 사용자)',
   ].join('\n');
   Logger.log(msg);
   return msg;
@@ -87,9 +90,15 @@ function handleApi_(req) {
   var p = req.payload || {};
   switch (req.action) {
     case 'ping':
-      return { ok: true, ai: !!prop_('ANTHROPIC_API_KEY'), model: model_(), url: serviceUrl_() };
+      return aiStatus_({ ok: true });
     case 'load':
-      return { ok: true, state: loadState_(), ai: !!prop_('ANTHROPIC_API_KEY'), url: serviceUrl_() };
+      return aiStatus_({ ok: true, state: loadState_() });
+    case 'setApiKey':
+      return setApiKey_(p.apiKey);
+    case 'setModel':
+      if (MODELS.indexOf(p.model) < 0) throw new Error('지원하지 않는 모델입니다.');
+      PropertiesService.getScriptProperties().setProperty('CLAUDE_MODEL', p.model);
+      return aiStatus_({ ok: true });
     case 'saveMeta':
       return withLock_(function () {
         saveMeta_(p.meta);
@@ -280,6 +289,37 @@ function deleteTransaction_(id) {
 
 // ---------- Claude API ----------
 
+function aiStatus_(out) {
+  out.ai = !!prop_('ANTHROPIC_API_KEY');
+  out.model = model_();
+  out.models = MODELS;
+  out.lastError = prop_('LAST_AI_ERROR');
+  out.url = serviceUrl_();
+  return out;
+}
+
+// 앱 설정 화면에서 넣은 API 키를 확인(모델 목록 조회, 비용 없음)한 뒤 저장한다. 빈 값이면 지운다.
+function setApiKey_(apiKey) {
+  var props = PropertiesService.getScriptProperties();
+  apiKey = String(apiKey || '').trim();
+  if (!apiKey) {
+    props.deleteProperty('ANTHROPIC_API_KEY');
+    return aiStatus_({ ok: true });
+  }
+  if (!/^sk-ant-/.test(apiKey)) throw new Error('Claude API 키는 sk-ant- 로 시작해요.');
+  var res = UrlFetchApp.fetch('https://api.anthropic.com/v1/models?limit=1', {
+    method: 'get',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    muteHttpExceptions: true,
+  });
+  var code = res.getResponseCode();
+  if (code === 401 || code === 403) throw new Error('API 키가 올바르지 않아요. (HTTP ' + code + ')');
+  if (code !== 200) throw new Error('키를 확인하지 못했어요. 잠시 뒤 다시 시도해 주세요. (HTTP ' + code + ')');
+  props.setProperty('ANTHROPIC_API_KEY', apiKey);
+  props.deleteProperty('LAST_AI_ERROR');
+  return aiStatus_({ ok: true });
+}
+
 function model_() {
   return prop_('CLAUDE_MODEL') || DEFAULT_MODEL;
 }
@@ -400,7 +440,7 @@ function loadState_() {
 }
 
 function cellToString_(v) {
-  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (v instanceof Date) return Utilities.formatDate(v, TZ, 'yyyy-MM-dd');
   return v === null || v === undefined ? '' : String(v);
 }
 
@@ -501,7 +541,7 @@ function withLock_(fn) {
 }
 
 function today_() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
 }
 
 function nowISO_() {

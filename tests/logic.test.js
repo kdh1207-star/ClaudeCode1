@@ -360,3 +360,27 @@ test('계획 버전마다 고정 항목 초과 처리 방식을 저장한다 (�
   assert.equal(s.plans[0].fixedOverflow, 'warn');
   assert.equal(s.plans[1].fixedOverflow, 'scale');
 });
+
+test('미분류 정리: 미분류 지출을 가맹점별로 묶고, 그 기간 계획에 없는 항목도 미분류로 본다', () => {
+  const st = L.normalizeState({
+    settings: { startDay: 1 },
+    plans: [
+      { from: L.BASE_PLAN_FROM, categories: [{ id: 'food', name: '식비', type: 'ratio', value: 50 }, { id: 'cafe', name: '카페', type: 'ratio', value: 10 }] },
+      { from: '2026-10-01', categories: [{ id: 'food', name: '식비', type: 'ratio', value: 60 }] },
+    ],
+    transactions: [
+      { id: '1', date: '2026-10-03', amount: 30000, memo: '홍*동', categoryId: null },
+      { id: '2', date: '2026-10-09', amount: 20000, memo: '홍*동', categoryId: null },
+      { id: '3', date: '2026-10-05', amount: 4500, memo: '스타벅스', categoryId: 'cafe' }, // 10월 계획엔 카페가 없음
+      { id: '4', date: '2026-09-05', amount: 4500, memo: '스타벅스', categoryId: 'cafe' }, // 9월엔 있음
+      { id: '5', date: '2026-10-06', amount: 9000, memo: '김밥천국', categoryId: 'food' },
+      { id: '6', date: '2026-10-07', amount: 50000, memo: '엄마', kind: 'transfer' },
+    ],
+  });
+  const g = L.unclassifiedGroups(st);
+  assert.deepEqual(g.map((x) => [x.memo, x.items.length, x.total, x.latest]), [
+    ['홍*동', 2, 50000, '2026-10-09'],
+    ['스타벅스', 1, 4500, '2026-10-05'],
+  ]);
+  assert.deepEqual(g[0].items.map((t) => t.id), ['2', '1']);
+});

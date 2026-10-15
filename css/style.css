@@ -448,3 +448,20 @@ td.memo { min-width: 120px; word-break: break-all; }
 .steps a.primary-btn { color: #fff; text-decoration: none; margin: 4px 0; }
 .steps a { color: var(--accent-text); }
 details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
+
+/* 미분류 정리 */
+.nav-count { margin-left: auto; min-width: 22px; padding: 0 7px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; line-height: 20px; text-align: center; }
+.check-row { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; margin-top: 10px; cursor: pointer; }
+.check-row input { margin-top: 3px; }
+.sort-group { display: flex; flex-direction: column; gap: 10px; }
+.sort-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sort-memo { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.sort-sum { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sort-dates { font-size: 13px; color: var(--text-2); }
+.sort-raw { font-size: 13px; color: var(--text-2); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pick-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick-btn { border: 1px solid var(--border); background: var(--surface); color: inherit; font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.pick-btn:hover { background: var(--surface-2); }
+.pick-btn .dot { width: 8px; height: 8px; border-radius: 50%; }
+.pick-btn.other { color: var(--text-2); border-style: dashed; }
+.sort-group details summary { font-size: 13px; color: var(--text-2); cursor: pointer; }

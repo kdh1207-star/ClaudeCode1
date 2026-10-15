@@ -145,6 +145,7 @@
     home: { title: '홈', period: true },
     calendar: { title: '달력', period: true },
     list: { title: '내역', period: true },
+    sort: { title: '미분류 정리', period: false },
     report: { title: '리포트', period: true },
     assets: { title: '자산', period: true },
     plan: { title: '예산 계획', period: true },
@@ -193,6 +194,9 @@
       chip.className = `chip ${store.aiEnabled ? 'on' : ''}`;
     }
     $('#refresh-btn').hidden = store.mode !== 'remote';
+    const unsorted = L.unclassifiedGroups(S()).reduce((n, g) => n + g.items.length, 0);
+    $('#sort-count').textContent = unsorted > 99 ? '99+' : String(unsorted);
+    $('#sort-count').hidden = !unsorted;
 
     const p = currentPeriod;
     $('#period-text').textContent = `${fmtDate(p.start)} ~ ${fmtDate(p.end).slice(5)}`;
@@ -451,7 +455,7 @@
         rows.push(`
           <div class="cat-row" data-cat="__none">
             <div class="cat-top">
-              <span class="cat-name"><span class="dot" style="background:var(--gray-mark)"></span>미분류<span class="badge">항목 지정 필요</span></span>
+              <span class="cat-name"><span class="dot" style="background:var(--gray-mark)"></span>미분류<span class="badge">눌러서 정리하기</span></span>
               <span class="cat-amounts"><b>${won(sum.unclassified)}</b> · ${sum.unclassifiedCount}건</span>
             </div>
           </div>`);
@@ -459,6 +463,7 @@
       rowsEl.innerHTML = rows.join('');
       rowsEl.querySelectorAll('.cat-row').forEach((el) => {
         el.addEventListener('click', () => {
+          if (el.dataset.cat === '__none') return showPage('sort');
           Object.assign(listState, { category: el.dataset.cat, kind: 'all', account: 'all', search: '' });
           showPage('list');
         });
@@ -604,6 +609,74 @@
     const el = $('#tx-list');
     el.innerHTML = txs.length ? txGroups(txs) : '<div class="empty">조건에 맞는 내역이 없습니다.</div>';
     bindTxEvents(el);
+  }
+
+  // ---------- 미분류 정리 ----------
+
+  function renderSort() {
+    const groups = L.unclassifiedGroups(S());
+    const count = groups.reduce((n, g) => n + g.items.length, 0);
+    const total = groups.reduce((n, g) => n + g.total, 0);
+    $('#sort-total').textContent = count ? `${count}건 · ${won(total)}` : '';
+    const el = $('#sort-groups');
+    if (!groups.length) {
+      el.innerHTML = '<div class="card"><div class="empty">미분류 지출이 없어요. 모두 정리됐어요.</div></div>';
+      return;
+    }
+    el.innerHTML = groups.map((g, gi) => {
+      const cats = planForDate(g.latest).categories;
+      const days = [...new Set(g.items.map((t) => t.date))];
+      const dates = days.slice(0, 3).map(fmtDay).join(', ') + (days.length > 3 ? ` 외 ${days.length - 3}일` : '');
+      const raw = g.items.find((t) => t.raw)?.raw;
+      return `
+        <div class="card sort-group" data-g="${gi}">
+          <div class="sort-head">
+            <span class="sort-memo">${esc(g.memo)}</span>
+            <span class="sort-sum"><b>${won(g.total)}</b>${g.items.length > 1 ? ` · ${g.items.length}건` : ''}</span>
+          </div>
+          <div class="sort-dates">${esc(dates)}${g.items[0].accountId && accountName(g.items[0].accountId) ? ` · ${esc(accountName(g.items[0].accountId))}` : ''}</div>
+          ${raw ? `<div class="sort-raw">${esc(raw)}</div>` : ''}
+          <div class="pick-row">
+            ${cats.map((c, i) => `<button class="pick-btn" data-cat="${esc(c.id)}"><span class="dot" style="background:${C.seriesColor(i)}"></span>${esc(c.name)}</button>`).join('')}
+            <button class="pick-btn other" data-kind="transfer">내 계좌 이동</button>
+            <button class="pick-btn other" data-kind="income">입금</button>
+          </div>
+          ${g.items.length > 1 ? `<details><summary>하나씩 따로 고르기</summary><div class="tx-list">${g.items.map((t) => txRow(t)).join('')}</div></details>` : ''}
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('.sort-group').forEach((card) => {
+      const g = groups[Number(card.dataset.g)];
+      card.querySelectorAll('.pick-btn').forEach((b) => b.addEventListener('click', quiet(() => assignGroup(g, b.dataset.cat, b.dataset.kind))));
+      bindTxEvents(card);
+    });
+  }
+
+  async function assignGroup(g, categoryId, kind) {
+    const learn = $('#sort-learn').checked;
+    if (categoryId && learn) {
+      S().merchantMap[g.key] = categoryId;
+      store.saveMeta();
+    }
+    let done = 0;
+    await busy(g.items.length > 3 ? '정리하는 중…' : null, async () => {
+      for (const t of g.items) {
+        if (kind) {
+          await store.updateTransaction(t.id, { kind, categoryId: null, method: null });
+          done += 1;
+        } else if (planForDate(t.date).categories.some((c) => c.id === categoryId)) {
+          // 그 날짜의 계획에 없는 항목이면 건너뛴다 (지난 기간 계획과 항목이 다를 수 있음)
+          await store.updateTransaction(t.id, { kind: 'expense', categoryId, method: 'manual' });
+          done += 1;
+        }
+      }
+    });
+    const what = kind === 'transfer' ? '내 계좌 이동' : kind === 'income' ? '입금' : categoryInfo(categoryId, planForDate(g.latest).categories).name;
+    const skipped = g.items.length - done;
+    toast(`'${g.memo}' ${done}건을 ${what}(으)로 정리했어요.` +
+      (skipped ? ` (${skipped}건은 그때 계획에 이 항목이 없어 남겨 뒀어요)` : '') +
+      (categoryId && learn ? ' 다음부터 자동으로 분류해요.' : ''));
+    render();
   }
 
   async function runReclassify(onlyUnclassified) {
@@ -1316,6 +1389,7 @@
     if (page === 'home') renderHome();
     else if (page === 'calendar') renderCalendar();
     else if (page === 'list') renderList();
+    else if (page === 'sort') renderSort();
     else if (page === 'report') renderReport();
     else if (page === 'assets') renderAssets();
     else if (page === 'plan') renderPlan();

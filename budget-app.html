@@ -455,6 +455,23 @@ td.memo { min-width: 120px; word-break: break-all; }
 .steps a.primary-btn { color: #fff; text-decoration: none; margin: 4px 0; }
 .steps a { color: var(--accent-text); }
 details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
+
+/* 미분류 정리 */
+.nav-count { margin-left: auto; min-width: 22px; padding: 0 7px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; line-height: 20px; text-align: center; }
+.check-row { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; margin-top: 10px; cursor: pointer; }
+.check-row input { margin-top: 3px; }
+.sort-group { display: flex; flex-direction: column; gap: 10px; }
+.sort-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sort-memo { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.sort-sum { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sort-dates { font-size: 13px; color: var(--text-2); }
+.sort-raw { font-size: 13px; color: var(--text-2); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pick-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick-btn { border: 1px solid var(--border); background: var(--surface); color: inherit; font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.pick-btn:hover { background: var(--surface-2); }
+.pick-btn .dot { width: 8px; height: 8px; border-radius: 50%; }
+.pick-btn.other { color: var(--text-2); border-style: dashed; }
+.sort-group details summary { font-size: 13px; color: var(--text-2); cursor: pointer; }
 </style>
 </head>
 <body>
@@ -517,6 +534,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
         <button class="nav-item" data-page="home"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>홈</button>
         <button class="nav-item" data-page="calendar"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>달력</button>
         <button class="nav-item" data-page="list"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>내역</button>
+        <button class="nav-item" data-page="sort"><svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z"/></svg>미분류 정리<span id="sort-count" class="nav-count" hidden></span></button>
         <button class="nav-item" data-page="report"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>리포트</button>
         <button class="nav-item" data-page="assets"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14.5h2"/></svg>자산</button>
         <button class="nav-item" data-page="plan"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>예산 계획</button>
@@ -642,6 +660,16 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
             <div class="card-head"><h2>카드</h2><span class="muted small">이번 기간 사용액</span></div>
             <div id="asset-cards"></div>
           </div>
+        </section>
+
+        <!-- 미분류 정리 -->
+        <section class="page" data-page="sort">
+          <div class="card">
+            <div class="card-head"><h2 id="sort-title">미분류 정리</h2><span id="sort-total" class="muted small"></span></div>
+            <p class="muted small">AI나 키워드가 항목을 정하지 못한 지출이에요. 같은 가맹점·상대에게 쓴 것끼리 묶었으니, 알맞은 항목을 누르면 묶음 전체가 그 항목으로 들어가요.</p>
+            <label class="check-row"><input type="checkbox" id="sort-learn" checked> 고른 항목을 기억해서 다음부터 같은 가맹점·상대는 자동으로 분류</label>
+          </div>
+          <div id="sort-groups"></div>
         </section>
 
         <!-- 예산 계획 -->
@@ -1222,6 +1250,27 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     return found;
   }
 
+  // 모든 기간의 미분류 지출을 가맹점(상대방)별로 묶는다. 최근에 생긴 묶음부터.
+  // 미분류 = 지출인데 항목이 없거나, 그 날짜가 속한 기간의 계획에 없는 항목인 것
+  function unclassifiedGroups(state) {
+    const byKey = new Map();
+    for (const t of state.transactions) {
+      if (kindOf(t) !== 'expense') continue;
+      const cats = planFor(state, getPeriod(t.date, state.settings.startDay).key).categories;
+      if (t.categoryId && cats.some((c) => c.id === t.categoryId)) continue;
+      const key = normalizeMerchant(t.memo) || t.memo;
+      if (!byKey.has(key)) byKey.set(key, { key, memo: t.memo, items: [], total: 0, latest: '' });
+      const g = byKey.get(key);
+      g.items.push(t);
+      g.total += t.amount;
+      if (t.date > g.latest) g.latest = t.date;
+    }
+    const groups = [...byKey.values()];
+    for (const g of groups) g.items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    groups.sort((a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : b.total - a.total));
+    return groups;
+  }
+
   // 이 기간부터 적용되는 계획을 수정하려고 할 때 호출. 없으면 직전 계획을 복사해서 만든다.
   function ensurePlanFor(state, periodKey, nowISO) {
     const existing = state.plans.find((p) => p.from === periodKey);
@@ -1772,6 +1821,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     isDuplicate,
     BASE_PLAN_FROM,
     planFor,
+    unclassifiedGroups,
     ensurePlanFor,
     nextPlanAfter,
     remapPeriodKeys,
@@ -2537,6 +2587,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     home: { title: '홈', period: true },
     calendar: { title: '달력', period: true },
     list: { title: '내역', period: true },
+    sort: { title: '미분류 정리', period: false },
     report: { title: '리포트', period: true },
     assets: { title: '자산', period: true },
     plan: { title: '예산 계획', period: true },
@@ -2585,6 +2636,9 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
       chip.className = `chip ${store.aiEnabled ? 'on' : ''}`;
     }
     $('#refresh-btn').hidden = store.mode !== 'remote';
+    const unsorted = L.unclassifiedGroups(S()).reduce((n, g) => n + g.items.length, 0);
+    $('#sort-count').textContent = unsorted > 99 ? '99+' : String(unsorted);
+    $('#sort-count').hidden = !unsorted;
 
     const p = currentPeriod;
     $('#period-text').textContent = `${fmtDate(p.start)} ~ ${fmtDate(p.end).slice(5)}`;
@@ -2843,7 +2897,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
         rows.push(`
           <div class="cat-row" data-cat="__none">
             <div class="cat-top">
-              <span class="cat-name"><span class="dot" style="background:var(--gray-mark)"></span>미분류<span class="badge">항목 지정 필요</span></span>
+              <span class="cat-name"><span class="dot" style="background:var(--gray-mark)"></span>미분류<span class="badge">눌러서 정리하기</span></span>
               <span class="cat-amounts"><b>${won(sum.unclassified)}</b> · ${sum.unclassifiedCount}건</span>
             </div>
           </div>`);
@@ -2851,6 +2905,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
       rowsEl.innerHTML = rows.join('');
       rowsEl.querySelectorAll('.cat-row').forEach((el) => {
         el.addEventListener('click', () => {
+          if (el.dataset.cat === '__none') return showPage('sort');
           Object.assign(listState, { category: el.dataset.cat, kind: 'all', account: 'all', search: '' });
           showPage('list');
         });
@@ -2996,6 +3051,74 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     const el = $('#tx-list');
     el.innerHTML = txs.length ? txGroups(txs) : '<div class="empty">조건에 맞는 내역이 없습니다.</div>';
     bindTxEvents(el);
+  }
+
+  // ---------- 미분류 정리 ----------
+
+  function renderSort() {
+    const groups = L.unclassifiedGroups(S());
+    const count = groups.reduce((n, g) => n + g.items.length, 0);
+    const total = groups.reduce((n, g) => n + g.total, 0);
+    $('#sort-total').textContent = count ? `${count}건 · ${won(total)}` : '';
+    const el = $('#sort-groups');
+    if (!groups.length) {
+      el.innerHTML = '<div class="card"><div class="empty">미분류 지출이 없어요. 모두 정리됐어요.</div></div>';
+      return;
+    }
+    el.innerHTML = groups.map((g, gi) => {
+      const cats = planForDate(g.latest).categories;
+      const days = [...new Set(g.items.map((t) => t.date))];
+      const dates = days.slice(0, 3).map(fmtDay).join(', ') + (days.length > 3 ? ` 외 ${days.length - 3}일` : '');
+      const raw = g.items.find((t) => t.raw)?.raw;
+      return `
+        <div class="card sort-group" data-g="${gi}">
+          <div class="sort-head">
+            <span class="sort-memo">${esc(g.memo)}</span>
+            <span class="sort-sum"><b>${won(g.total)}</b>${g.items.length > 1 ? ` · ${g.items.length}건` : ''}</span>
+          </div>
+          <div class="sort-dates">${esc(dates)}${g.items[0].accountId && accountName(g.items[0].accountId) ? ` · ${esc(accountName(g.items[0].accountId))}` : ''}</div>
+          ${raw ? `<div class="sort-raw">${esc(raw)}</div>` : ''}
+          <div class="pick-row">
+            ${cats.map((c, i) => `<button class="pick-btn" data-cat="${esc(c.id)}"><span class="dot" style="background:${C.seriesColor(i)}"></span>${esc(c.name)}</button>`).join('')}
+            <button class="pick-btn other" data-kind="transfer">내 계좌 이동</button>
+            <button class="pick-btn other" data-kind="income">입금</button>
+          </div>
+          ${g.items.length > 1 ? `<details><summary>하나씩 따로 고르기</summary><div class="tx-list">${g.items.map((t) => txRow(t)).join('')}</div></details>` : ''}
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('.sort-group').forEach((card) => {
+      const g = groups[Number(card.dataset.g)];
+      card.querySelectorAll('.pick-btn').forEach((b) => b.addEventListener('click', quiet(() => assignGroup(g, b.dataset.cat, b.dataset.kind))));
+      bindTxEvents(card);
+    });
+  }
+
+  async function assignGroup(g, categoryId, kind) {
+    const learn = $('#sort-learn').checked;
+    if (categoryId && learn) {
+      S().merchantMap[g.key] = categoryId;
+      store.saveMeta();
+    }
+    let done = 0;
+    await busy(g.items.length > 3 ? '정리하는 중…' : null, async () => {
+      for (const t of g.items) {
+        if (kind) {
+          await store.updateTransaction(t.id, { kind, categoryId: null, method: null });
+          done += 1;
+        } else if (planForDate(t.date).categories.some((c) => c.id === categoryId)) {
+          // 그 날짜의 계획에 없는 항목이면 건너뛴다 (지난 기간 계획과 항목이 다를 수 있음)
+          await store.updateTransaction(t.id, { kind: 'expense', categoryId, method: 'manual' });
+          done += 1;
+        }
+      }
+    });
+    const what = kind === 'transfer' ? '내 계좌 이동' : kind === 'income' ? '입금' : categoryInfo(categoryId, planForDate(g.latest).categories).name;
+    const skipped = g.items.length - done;
+    toast(`'${g.memo}' ${done}건을 ${what}(으)로 정리했어요.` +
+      (skipped ? ` (${skipped}건은 그때 계획에 이 항목이 없어 남겨 뒀어요)` : '') +
+      (categoryId && learn ? ' 다음부터 자동으로 분류해요.' : ''));
+    render();
   }
 
   async function runReclassify(onlyUnclassified) {
@@ -3708,6 +3831,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     if (page === 'home') renderHome();
     else if (page === 'calendar') renderCalendar();
     else if (page === 'list') renderList();
+    else if (page === 'sort') renderSort();
     else if (page === 'report') renderReport();
     else if (page === 'assets') renderAssets();
     else if (page === 'plan') renderPlan();

@@ -447,6 +447,27 @@
     return found;
   }
 
+  // 모든 기간의 미분류 지출을 가맹점(상대방)별로 묶는다. 최근에 생긴 묶음부터.
+  // 미분류 = 지출인데 항목이 없거나, 그 날짜가 속한 기간의 계획에 없는 항목인 것
+  function unclassifiedGroups(state) {
+    const byKey = new Map();
+    for (const t of state.transactions) {
+      if (kindOf(t) !== 'expense') continue;
+      const cats = planFor(state, getPeriod(t.date, state.settings.startDay).key).categories;
+      if (t.categoryId && cats.some((c) => c.id === t.categoryId)) continue;
+      const key = normalizeMerchant(t.memo) || t.memo;
+      if (!byKey.has(key)) byKey.set(key, { key, memo: t.memo, items: [], total: 0, latest: '' });
+      const g = byKey.get(key);
+      g.items.push(t);
+      g.total += t.amount;
+      if (t.date > g.latest) g.latest = t.date;
+    }
+    const groups = [...byKey.values()];
+    for (const g of groups) g.items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    groups.sort((a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : b.total - a.total));
+    return groups;
+  }
+
   // 이 기간부터 적용되는 계획을 수정하려고 할 때 호출. 없으면 직전 계획을 복사해서 만든다.
   function ensurePlanFor(state, periodKey, nowISO) {
     const existing = state.plans.find((p) => p.from === periodKey);
@@ -997,6 +1018,7 @@
     isDuplicate,
     BASE_PLAN_FROM,
     planFor,
+    unclassifiedGroups,
     ensurePlanFor,
     nextPlanAfter,
     remapPeriodKeys,

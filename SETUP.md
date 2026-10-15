@@ -42,6 +42,14 @@
 
 > 나중에 코드를 새 버전으로 바꿨다면 1단계처럼 붙여넣고 저장한 뒤 **배포 → 배포 관리 → ✏ 편집 → 버전: 새 버전 → 배포**를 해야 반영됩니다. (주소는 그대로입니다)
 
+## 3-1단계. 앱으로 설치하기 (선택, 추천)
+
+주소창 없이 앱처럼 꽉 찬 화면으로 쓰고 싶으면 설치형 앱(PWA)을 쓰세요. 화면은 GitHub Pages 에서, 데이터는 지금의 Apps Script 서버에서 가져옵니다. 화면 업데이트는 자동이고, Code.gs 는 서버 기능이 바뀔 때만 업데이트하면 됩니다.
+
+1. (처음 한 번) GitHub 저장소 **Settings → Pages → Build and deployment** 에서 Source 를 **Deploy from a branch**, Branch 를 **main** / 폴더 **/docs** 로 고르고 **Save**. 1~2분 뒤 `https://kdh1207-star.github.io/ClaudeCode1/` 이 열립니다.
+2. 폰에서 지금 쓰는 가계부(Apps Script 주소)를 열고 **설정 → 자동 입력 → 앱 화면 열기**를 누릅니다. 서버 주소와 접속 키가 자동으로 넘어갑니다.
+3. 열린 화면에서 크롬 **⋮ → 홈 화면에 추가(앱 설치)**. 이후에는 홈 화면 아이콘으로 엽니다.
+
 ## 4단계. Claude AI 분류 켜기 (선택, 추천)
 
 1. [console.anthropic.com](https://console.anthropic.com) 에 가입하고 로그인합니다. (claude.ai 구독과는 별개입니다)

@@ -1169,7 +1169,7 @@
         <ol class="steps">
           <li>플레이 스토어에서 <b>MacroDroid</b> 설치 (Pro 7일 체험 안내는 닫기)</li>
           <li>매크로 추가 → 트리거 <b>전화/SMS → SMS 수신</b> (모든 번호, 내용에 <code>잔액</code> 포함)</li>
-          <li>동작 <b>연결 → HTTP 요청</b>: POST, 아래 주소, 본문 text/plain 에 매직 텍스트 <code>[sms_message]</code></li>
+          <li>동작 <b>웹 접속 → HTTP 요청</b>: POST, 아래 주소, 본문 text/plain 에 매직 텍스트 <code>[sms_message]</code></li>
           <li>저장 후 휴대폰 설정에서 MacroDroid 배터리 <b>제한 없음</b></li>
         </ol>
         <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl('bank'))}" id="url-bank"><button class="ghost-btn" data-copy="url-bank">복사</button></div>

@@ -162,7 +162,12 @@
     $$('.page').forEach((p) => p.classList.toggle('active', p.dataset.page === name));
     $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === name));
     $$('.bottom-nav [data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === name));
-    $('#page-title').textContent = PAGES[name].title;
+    const title = $('#page-title');
+    title.textContent = PAGES[name].title;
+    // 테마별 전환 애니메이션을 다시 시작하도록 클래스를 붙였다 뗀다 (레트로 터미널: 제목 타자 효과)
+    title.classList.remove('typing');
+    void title.offsetWidth;
+    title.classList.add('typing');
     $('#period-nav').hidden = !PAGES[name].period;
     closeMenu();
     // 구글 Apps Script 화면(iframe)처럼 주소를 못 바꾸는 곳에서도 이동은 되게

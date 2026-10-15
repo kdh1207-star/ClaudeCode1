@@ -801,7 +801,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
               <div class="card" id="set-data">
                 <h2>데이터</h2>
                 <p id="data-note" class="muted small"></p>
-                <p class="muted small">앱 버전 <code id="build-id">9913b14</code></p>
+                <p class="muted small">앱 버전 <code id="build-id">768f2ce</code></p>
                 <div class="row-actions">
                   <button id="export-btn" class="ghost-btn">백업 내보내기(JSON)</button>
                   <label class="ghost-btn file-btn">백업 불러오기<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -4013,7 +4013,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
         <ol class="steps">
           <li>플레이 스토어에서 <b>MacroDroid</b> 설치 (Pro 7일 체험 안내는 닫기)</li>
           <li>매크로 추가 → 트리거 <b>전화/SMS → SMS 수신</b> (모든 번호, 내용에 <code>잔액</code> 포함)</li>
-          <li>동작 <b>웹 접속 → HTTP 요청</b>: POST, 아래 주소, 본문 text/plain 에 매직 텍스트 <code>[sms_message]</code></li>
+          <li>동작 <b>웹 접속 → HTTP 요청</b>: POST, 아래 주소, 본문 text/plain 에 <b>…(매직 텍스트) → SMS 메시지</b> 선택 (버전에 따라 <code>{sms_message}</code> 또는 <code>[sms_message]</code>로 들어가요. 그대로 두세요)</li>
           <li>저장 후 휴대폰 설정에서 MacroDroid 배터리 <b>제한 없음</b></li>
         </ol>
         <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl('bank'))}" id="url-bank"><button class="ghost-btn" data-copy="url-bank">복사</button></div>

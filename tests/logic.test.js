@@ -441,3 +441,17 @@ test('간편결제 머니: 다른 계좌의 페이 출금은 충전, 페이 결�
   const parsed = L.parseStatementRows(rows, { accountId: 'kp', payAccount: true });
   assert.deepEqual(parsed.items.map((i) => [i.kind, i.amount, i.memo]), [['transfer', 30000, '카카오페이머니 충전'], ['expense', 4500, '스타벅스']]);
 });
+
+test('카카오페이 결제내역: 사용처 칸을 사용처로 읽는다', () => {
+  const rows = [
+    ['카카오페이 거래내역'],
+    ['결제일시', '구분', '내용', '사용처', '결제금액'],
+    ['2026-10-11 12:00', '결제', '카카오페이머니', '스타벅스 강남점', '4,500'],
+    ['2026-10-11 13:00', '충전', '카카오페이머니 충전', '', '30,000'],
+  ];
+  const parsed = L.parseStatementRows(rows, { accountId: 'kp', payAccount: true });
+  assert.deepEqual(parsed.items.map((i) => [i.memo, i.kind, i.amount]), [
+    ['스타벅스 강남점', 'expense', 4500],
+    ['카카오페이머니 충전', 'transfer', 30000],
+  ]);
+});

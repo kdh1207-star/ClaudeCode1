@@ -21,6 +21,29 @@ var MODELS = ['claude-opus-5-5', 'claude-haiku-4-5'];
 var TZ = 'Asia/Seoul';
 var AI_BATCH = 40;
 
+// ---------- 처음 설정 ----------
+
+// 편집기에서 한 번 실행 (함수 목록 맨 위에 오도록 파일에서 가장 먼저 둔다): 시트를 만들고, 접속 키가 없으면 새로 만들어 실행 기록에 보여준다.
+function setup() {
+  txSheet_();
+  saveMeta_(loadMeta_(), true);
+  var props = PropertiesService.getScriptProperties();
+  var key = props.getProperty('APP_KEY');
+  if (!key) {
+    key = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '').slice(0, 24);
+    props.setProperty('APP_KEY', key);
+  }
+  var msg = [
+    '준비 완료!',
+    '접속 키: ' + key + '   ← 앱을 처음 열 때 이 키를 입력하세요. (다시 보려면 setup 을 또 실행하면 됩니다)',
+    'Claude API 키: ' + (props.getProperty('ANTHROPIC_API_KEY') ? '설정됨' : '아직 없음 (앱의 설정 → 자동 입력에서 넣을 수 있어요)'),
+    '다음 단계: 오른쪽 위 [배포] → [새 배포] → 웹 앱 (실행: 나, 액세스: 모든 사용자)',
+  ].join('\n');
+  Logger.log(msg);
+  if (typeof console !== 'undefined') console.log(msg);
+  return msg;
+}
+
 // ---------- 진입점 ----------
 
 // 화면은 항상 내려주고, 데이터는 접속 키가 맞아야만 준다. 키는 처음 한 번 화면에서 입력하면 그 기기가 기억한다.
@@ -60,27 +83,6 @@ function api(req) {
   } catch (err) {
     return { ok: false, error: String(err && err.message ? err.message : err) };
   }
-}
-
-// 편집기에서 한 번 실행: 시트를 만들고, 접속 키가 없으면 새로 만들어 실행 기록에 보여준다.
-function setup() {
-  txSheet_();
-  saveMeta_(loadMeta_(), true);
-  var props = PropertiesService.getScriptProperties();
-  var key = props.getProperty('APP_KEY');
-  if (!key) {
-    key = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '').slice(0, 24);
-    props.setProperty('APP_KEY', key);
-  }
-  var msg = [
-    '준비 완료!',
-    '접속 키: ' + key + '   ← 앱을 처음 열 때 이 키를 입력하세요. (다시 보려면 setup 을 또 실행하면 됩니다)',
-    'Claude API 키: ' + (props.getProperty('ANTHROPIC_API_KEY') ? '설정됨' : '아직 없음 (앱의 설정 → 자동 입력에서 넣을 수 있어요)'),
-    '다음 단계: 오른쪽 위 [배포] → [새 배포] → 웹 앱 (실행: 나, 액세스: 모든 사용자)',
-  ].join('\n');
-  Logger.log(msg);
-  if (typeof console !== 'undefined') console.log(msg);
-  return msg;
 }
 
 // ---------- 요청 처리 ----------

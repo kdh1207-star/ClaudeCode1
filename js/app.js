@@ -477,18 +477,27 @@
       const ratio = sum.income > 0 ? sum.totalSpent / sum.income : sum.totalSpent > 0 ? Infinity : 0;
       const status = L.statusOf(ratio);
       hero.innerHTML = `
-        <div class="label">남은 돈</div>
+        <div class="label">LEFT TO SPEND // 남은 돈</div>
         <div class="figure ${sum.remaining < 0 ? 'negative' : ''}">${won(sum.remaining)}</div>
         <div class="sub">${won(sum.income)} 중 ${won(sum.totalSpent)} 사용 (${sum.income > 0 ? Math.round(ratio * 100) : 0}%)</div>
         <div class="meter ${status}" role="meter" aria-valuemin="0" aria-valuemax="${sum.income}" aria-valuenow="${sum.totalSpent}" aria-label="예산 사용"><div class="meter-fill" style="width:${Math.min(100, ratio * 100)}%"></div></div>`;
     } else {
       hero.innerHTML = `
-        <div class="label">이번 기간 쓴 돈</div>
+        <div class="label">SPENT // 이번 기간 쓴 돈</div>
         <div class="figure">${won(sum.totalSpent)}</div>
         <div class="sub">수입을 입력하면 항목별 한도와 남은 돈을 계산해 드려요.</div>`;
     }
 
     const perDay = isCurrent && sum.hasIncome && sum.remaining > 0 ? won(Math.floor(sum.remaining / daysLeft)) : '—';
+    // 흐르는 전광판: 이번 기간 핵심 숫자
+    const bits = [`SPENT ${won(sum.totalSpent)}`];
+    if (sum.incomeReceived) bits.push(`IN +${won(sum.incomeReceived)}`);
+    if (sum.hasIncome) bits.push(`LEFT ${won(sum.remaining)}`);
+    if (isCurrent) bits.push(`D-${daysLeft}`);
+    if (perDay !== '—') bits.push(`하루 ${perDay}`);
+    if (sum.unclassifiedCount) bits.push(`미분류 ${sum.unclassifiedCount}건`);
+    const run = bits.map((b) => `<span>${esc(b)}</span><span aria-hidden="true">✶</span>`).join('');
+    $('#ticker').innerHTML = `<div class="ticker-track" aria-label="${esc(bits.join(', '))}">${run}${run}${run}${run}</div>`;
     $('#home-summary').innerHTML = `
       <div class="kv"><span class="k">이번 기간 지출</span><span class="v">${won(sum.totalSpent)} · ${sum.transactions.length}건</span></div>
       <div class="kv"><span class="k">받은 입금</span><span class="v plus">${sum.incomeReceived ? `+${won(sum.incomeReceived)}` : '—'}</span></div>
@@ -861,7 +870,7 @@
     const a = L.assetSummary(S(), currentPeriod);
     const hasBalance = a.banks.some((b) => typeof b.balance === 'number');
     $('#asset-hero').innerHTML = `
-      <div class="label">계좌 잔액 합계</div>
+      <div class="label">TOTAL // 계좌 잔액 합계</div>
       <div class="figure">${hasBalance ? won(a.total) : '—'}</div>
       <div class="sub">${a.savings ? `저축 계좌 ${won(a.savings)} · ` : ''}등록한 계좌 ${a.banks.length}개, 카드 ${a.cards.length}개</div>`;
 
@@ -1537,6 +1546,32 @@
     else if (page === 'plan') renderPlan();
     else if (page === 'add') renderAdd();
     else if (page === 'settings') renderSettings();
+    tidyHints();
+  }
+
+  // 긴 설명 문구는 접어 두고 제목 옆 ⓘ 를 눌러야 보이게 한다 (화면을 가볍게)
+  function tidyHints() {
+    $$('.content p.muted.small:not([id]):not([data-hint])').forEach((p) => {
+      p.dataset.hint = '1';
+      if (p.textContent.trim().length < 45 || p.closest('.acct-note, table, .key-card')) return;
+      p.classList.add('hint-collapsed');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hint-toggle';
+      btn.textContent = 'i';
+      btn.setAttribute('aria-label', '설명 보기');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.addEventListener('click', () => {
+        const open = p.classList.toggle('hint-collapsed') === false;
+        btn.setAttribute('aria-expanded', String(open));
+      });
+      // 같은 카드 안 바로 앞의 제목 옆에 붙이고, 없으면 문단 자리에 둔다
+      let prev = p.previousElementSibling;
+      while (prev && !/^H[23]$/.test(prev.tagName) && !prev.classList.contains('card-head')) prev = prev.previousElementSibling;
+      const target = prev && (prev.classList.contains('card-head') ? prev.querySelector('h2') : prev);
+      if (target && !target.querySelector('.hint-toggle')) target.appendChild(btn);
+      else p.before(btn);
+    });
   }
 
   function bindEvents() {

@@ -1422,6 +1422,14 @@
     names[names.length - 1].focus();
   }
 
+  // 설치형 앱(GitHub Pages) 주소. #connect= 뒤에 서버 주소·접속 키를 실어 보낸다 (# 뒤는 서버로 전송되지 않음)
+  const PWA_URL = 'https://kdh1207-star.github.io/ClaudeCode1/';
+  function pwaLink() {
+    const json = JSON.stringify({ u: store.serviceUrl, k: store.server.key });
+    const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return `${PWA_URL}#connect=${b64}`;
+  }
+
   function renderAutoCard() {
     const card = $('#set-auto');
     if (store.mode === 'remote') {
@@ -1436,6 +1444,10 @@
         </form>
         ${store.aiEnabled ? `<div class="form-grid" style="margin-top:12px"><label class="wide">사용할 모델<select id="ai-model">${(store.aiModels.length ? store.aiModels : [store.aiModel]).map((m) => `<option value="${esc(m)}" ${m === store.aiModel ? 'selected' : ''}>${esc(MODEL_LABEL[m] || m)}</option>`).join('')}</select></label></div>` : ''}
         ${store.aiError ? `<p class="muted small">최근 AI 오류: ${esc(store.aiError)}</p>` : ''}
+        ${store.server.embedded ? `
+        <h3>앱으로 설치 (주소창 없는 화면)</h3>
+        <p class="muted small">아래 버튼을 누르면 설치형 앱 화면이 열리고 이 서버 주소·접속 키가 자동으로 연결돼요. 열린 화면에서 크롬 메뉴 <b>⋮ → 홈 화면에 추가(앱 설치)</b>를 누르세요. 화면은 자동으로 최신 버전이 돼요.</p>
+        <div class="row-actions"><a class="primary-btn" target="_blank" rel="noopener" href="${esc(pwaLink())}">앱 화면 열기</a></div>` : ''}
         <h3>카카오뱅크 문자 자동 입력 (MacroDroid 무료)</h3>
         <ol class="steps">
           <li>플레이 스토어에서 <b>MacroDroid</b> 설치 (Pro 7일 체험 안내는 닫기)</li>
@@ -1750,6 +1762,9 @@
     if ((root.getAttribute('data-skin') || 'basic') === t && document.getElementById('backdrop')) return;
     if (t === 'basic') root.removeAttribute('data-skin');
     else root.setAttribute('data-skin', t);
+    // 휴대폰 상태바 색을 테마 바탕색에 맞춘다
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', getComputedStyle(root).getPropertyValue('--page').trim() || '#f4f4f1');
     try {
       localStorage.setItem('budget-theme', t);
     } catch (e) {

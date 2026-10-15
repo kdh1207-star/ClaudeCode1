@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>내 지출 관리</title>
+  <meta name="theme-color" content="#f4f4f1">
   <link href="https://fonts.googleapis.com" rel="preconnect">
   <link href="https://fonts.gstatic.com" rel="preconnect" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Do+Hyeon&family=Gothic+A1:wght@700;800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@400;500;700&family=Nanum+Gothic+Coding:wght@400;700&family=Share+Tech+Mono&family=Unbounded:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -1293,7 +1294,19 @@ p.hint-collapsed { display: none; }
 </style>
 </head>
 <body>
-  <script>try { var t = localStorage.getItem("budget-theme"); if (t && t !== "basic") document.documentElement.setAttribute("data-skin", t); } catch (e) {}</script>
+  <script>
+    // 테마를 먼저 적용해 깜빡임을 막고, 설치형 앱 주소의 #connect=… 로 서버 주소·접속 키를 넘겨받는다 (옛 문법)
+    try {
+      var t = localStorage.getItem("budget-theme");
+      if (t && t !== "basic") document.documentElement.setAttribute("data-skin", t);
+      var m = location.hash.match(/^#connect=([A-Za-z0-9_-]+)/);
+      if (m) {
+        var j = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, "+").replace(/_/g, "/")))));
+        if (j && j.u && j.k) localStorage.setItem("budget-app-server", JSON.stringify({ url: j.u, key: j.k }));
+        history.replaceState(null, "", location.pathname + location.search);
+      }
+    } catch (e) {}
+  </script>
   <noscript>
     <div style="padding:16px;margin:12px;border-radius:12px;background:#fde8b8;color:#0b0b0b;font:15px/1.5 sans-serif">
       이 화면에서는 앱의 기능(자바스크립트)이 실행되지 않아요. 파일 앱의 <b>미리보기</b>가 아니라 <b>크롬·삼성 인터넷·사파리</b> 같은 브라우저로 열어 주세요.
@@ -1617,7 +1630,7 @@ p.hint-collapsed { display: none; }
               <div class="card" id="set-data">
                 <h2 data-kicker="DATA">데이터</h2>
                 <p id="data-note" class="muted small"></p>
-                <p class="muted small">앱 버전 <code id="build-id">64170b7</code></p>
+                <p class="muted small">앱 버전 <code id="build-id">ad6e421</code></p>
                 <div class="row-actions">
                   <button id="export-btn" class="ghost-btn">백업 내보내기(JSON)</button>
                   <label class="ghost-btn file-btn">백업 불러오기<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -4833,6 +4846,14 @@ p.hint-collapsed { display: none; }
     names[names.length - 1].focus();
   }
 
+  // 설치형 앱(GitHub Pages) 주소. #connect= 뒤에 서버 주소·접속 키를 실어 보낸다 (# 뒤는 서버로 전송되지 않음)
+  const PWA_URL = 'https://kdh1207-star.github.io/ClaudeCode1/';
+  function pwaLink() {
+    const json = JSON.stringify({ u: store.serviceUrl, k: store.server.key });
+    const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return `${PWA_URL}#connect=${b64}`;
+  }
+
   function renderAutoCard() {
     const card = $('#set-auto');
     if (store.mode === 'remote') {
@@ -4847,6 +4868,10 @@ p.hint-collapsed { display: none; }
         </form>
         ${store.aiEnabled ? `<div class="form-grid" style="margin-top:12px"><label class="wide">사용할 모델<select id="ai-model">${(store.aiModels.length ? store.aiModels : [store.aiModel]).map((m) => `<option value="${esc(m)}" ${m === store.aiModel ? 'selected' : ''}>${esc(MODEL_LABEL[m] || m)}</option>`).join('')}</select></label></div>` : ''}
         ${store.aiError ? `<p class="muted small">최근 AI 오류: ${esc(store.aiError)}</p>` : ''}
+        ${store.server.embedded ? `
+        <h3>앱으로 설치 (주소창 없는 화면)</h3>
+        <p class="muted small">아래 버튼을 누르면 설치형 앱 화면이 열리고 이 서버 주소·접속 키가 자동으로 연결돼요. 열린 화면에서 크롬 메뉴 <b>⋮ → 홈 화면에 추가(앱 설치)</b>를 누르세요. 화면은 자동으로 최신 버전이 돼요.</p>
+        <div class="row-actions"><a class="primary-btn" target="_blank" rel="noopener" href="${esc(pwaLink())}">앱 화면 열기</a></div>` : ''}
         <h3>카카오뱅크 문자 자동 입력 (MacroDroid 무료)</h3>
         <ol class="steps">
           <li>플레이 스토어에서 <b>MacroDroid</b> 설치 (Pro 7일 체험 안내는 닫기)</li>
@@ -5161,6 +5186,9 @@ p.hint-collapsed { display: none; }
     if ((root.getAttribute('data-skin') || 'basic') === t && document.getElementById('backdrop')) return;
     if (t === 'basic') root.removeAttribute('data-skin');
     else root.setAttribute('data-skin', t);
+    // 휴대폰 상태바 색을 테마 바탕색에 맞춘다
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', getComputedStyle(root).getPropertyValue('--page').trim() || '#f4f4f1');
     try {
       localStorage.setItem('budget-theme', t);
     } catch (e) {

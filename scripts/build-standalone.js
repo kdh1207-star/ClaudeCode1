@@ -43,9 +43,25 @@ function buildCodeGs(html = buildHtml({ pack: true })) {
   ].join('\n');
 }
 
+// 설치형 웹앱(PWA): GitHub Pages(docs/)에서 화면을 주고, 데이터는 Apps Script 서버와 주고받는다
+function buildPwaHtml() {
+  return buildHtml()
+    .replace('<meta name="theme-color" content="#f4f4f1">', [
+      '<meta name="theme-color" content="#f4f4f1">',
+      '  <link rel="manifest" href="manifest.webmanifest">',
+      '  <link rel="icon" href="icon-192.png">',
+      '  <link rel="apple-touch-icon" href="icon-192.png">',
+      '  <meta name="apple-mobile-web-app-capable" content="yes">',
+      '  <meta name="mobile-web-app-capable" content="yes">',
+      '  <meta name="apple-mobile-web-app-title" content="가계부">',
+    ].join('\n'))
+    .replace('</body>', '<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function () {});</script>\n</body>');
+}
+
 function outputs() {
   return {
     'budget-app.html': buildHtml(),
+    'docs/index.html': buildPwaHtml(),
     'apps-script/Code.gs': buildCodeGs(),
   };
 }
@@ -54,6 +70,7 @@ module.exports = { buildHtml, buildCodeGs, outputs, buildId };
 
 if (require.main === module) {
   fs.mkdirSync(path.join(root, 'apps-script'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
   for (const [file, content] of Object.entries(outputs())) {
     fs.writeFileSync(path.join(root, file), content);
     console.log(`만듦: ${file}`);

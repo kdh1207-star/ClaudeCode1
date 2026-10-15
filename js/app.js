@@ -752,6 +752,26 @@
     render();
   }
 
+  // 모든 기간의 카카오페이 출금(충전)을 한 번에 '내 계좌 이체'로 바꾼다.
+  // 다음부터 자동으로 되도록 카카오페이를 간편결제 머니로 등록(없으면 새로 추가)한다.
+  async function fixPayTopups() {
+    const c = L.payTopupCandidates(S());
+    if (!c.txs.length) return toast(`'${c.payName}'(으)로 찍힌 지출·입금이 없어요. 이미 모두 내 계좌 이체예요.`);
+    const total = c.txs.filter((t) => L.kindOf(t) === 'expense').reduce((s, t) => s + t.amount, 0);
+    if (!confirm(`'${c.payName}'(으)로 빠져나간 내역 ${c.txs.length}건(${won(total)})을 모두 '내 계좌 이체'로 바꿀까요? 지출에서 빠지고, 카카오페이 결제내역으로만 지출을 셉니다.`)) return;
+    if (!c.account) {
+      S().accounts.push({ id: `a-${uid()}`, name: '카카오페이', type: 'pay', payName: c.payName, last4: '', isSavings: false, balance: null, balanceAt: '' });
+    } else if (c.needsType) {
+      Object.assign(c.account, { type: 'pay', payName: c.payName, isSavings: false });
+    }
+    store.saveMeta();
+    await busy(`바꾸는 중… (${c.txs.length}건)`, async () => {
+      for (const t of c.txs) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
+    });
+    toast(`${c.txs.length}건을 내 계좌 이체로 바꿨어요. 앞으로 들어오는 카카오페이 출금도 자동으로 내 계좌 이체가 돼요.`);
+    render();
+  }
+
   async function runReclassify(onlyUnclassified) {
     const label = store.aiEnabled ? 'AI가 다시 분류하는 중…' : '다시 분류하는 중…';
     const n = await busy(label, () => store.reclassify(currentPeriod, onlyUnclassified));
@@ -1582,6 +1602,7 @@
     $('#list-account').addEventListener('change', (e) => setFilter('account', e.target.value));
     $('#reclassify-unclassified').addEventListener('click', quiet(() => runReclassify(true)));
     $('#reclassify-all').addEventListener('click', quiet(() => runReclassify(false)));
+    $('#pay-topups').addEventListener('click', quiet(fixPayTopups));
 
     // 예산 계획
     $('#ratio-base').addEventListener('change', (e) => {

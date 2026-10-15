@@ -381,3 +381,24 @@ test('카카오페이: 은행 문자의 페이 출금은 충전(내 계좌 이�
   assert.equal(pay.tx.accountId, 'kp');
   assert.equal(pay.tx.categoryId, 'c-cafe');
 });
+
+test('다시 분류: 등록한 간편결제 머니의 충전 출금은 내 계좌 이체로 바꾼다', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk' },
+    claude: (body) => {
+      const input = JSON.parse(body.messages[0].content);
+      return { results: input.expenses.map((e, i) => ({ index: i, categoryId: 'c-food' })) };
+    },
+  });
+  const meta = env.api('load').state;
+  meta.accounts = [{ id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' }, { id: 'kp', name: '카카오페이', type: 'pay', payName: '카카오페이' }];
+  env.api('saveMeta', { meta });
+  env.api('addTransactions', { items: [
+    { date: '2026-10-11', amount: 50000, memo: '카카오페이', categoryId: 'c-shop', method: 'ai', accountId: 'kb' },
+    { date: '2026-10-11', amount: 9000, memo: '김밥천국', categoryId: null, accountId: 'kb' },
+  ] });
+  const r = env.api('reclassify', { start: '2026-10-01', end: '2026-10-31', onlyUnclassified: false });
+  const byMemo = Object.fromEntries(r.updated.map((t) => [t.memo, [t.kind, t.categoryId]]));
+  assert.deepEqual(byMemo['카카오페이'], ['transfer', null]);
+  assert.deepEqual(byMemo['김밥천국'], ['expense', 'c-food']);
+});

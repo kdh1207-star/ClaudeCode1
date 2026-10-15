@@ -478,3 +478,19 @@ test('이중 계산 찾기: 페이를 은행 계좌로 등록했어도 찾아낸
   st.transactions[0].kind = 'transfer';
   assert.deepEqual(L.payDoubleCounts(st), []);
 });
+
+test('카카오페이 출금 정리 버튼: 페이 계정이 없어도 카카오페이 이름으로 찾는다', () => {
+  const st = L.normalizeState({
+    accounts: [{ id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' }],
+    transactions: [
+      { id: '1', date: '2026-09-11', amount: 50000, memo: '카카오페이', kind: 'expense', accountId: 'kb' },
+      { id: '2', date: '2026-10-11', amount: 20000, memo: '(주)카카오페이 충전', kind: 'expense', accountId: 'kb' },
+      { id: '3', date: '2026-10-11', amount: 9000, memo: '김밥천국', kind: 'expense', accountId: 'kb' },
+      { id: '4', date: '2026-10-12', amount: 10000, memo: '카카오페이', kind: 'transfer', accountId: 'kb' },
+    ],
+  });
+  const c = L.payTopupCandidates(st);
+  assert.equal(c.account, null);
+  assert.equal(c.payName, '카카오페이');
+  assert.deepEqual(c.txs.map((t) => t.id), ['1', '2']);
+});

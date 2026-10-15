@@ -270,9 +270,12 @@
         const exists = known.has(t.categoryId);
         return onlyUnclassified ? !exists : !(t.method === 'manual' && exists);
       });
-      const res = await store.classify(targets);
       const now = nowISO();
-      targets.forEach((t, i) => Object.assign(t, res[i], { classifiedAt: now }));
+      // 간편결제 머니 충전 출금은 항목 대신 내 계좌 이체로
+      targets.filter((t) => L.applyPayRules(t, store.state.accounts)).forEach((t) => Object.assign(t, { classifiedAt: now }));
+      const rest = targets.filter((t) => L.kindOf(t) === 'expense');
+      const res = rest.length ? await store.classify(rest) : [];
+      rest.forEach((t, i) => Object.assign(t, res[i], { classifiedAt: now }));
       saveLocal();
       return targets.length;
     },

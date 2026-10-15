@@ -444,6 +444,17 @@
     return out;
   }
 
+  // '카카오페이 출금 정리' 버튼용: 정리할 페이 이름과 계정, 바꿀 내역.
+  // 간편결제 머니로 등록한 계정이 없으면 이름이 카카오페이인 계정, 그것도 없으면 '카카오페이' 이름만으로 찾는다.
+  function payTopupCandidates(state) {
+    const acc = state.accounts.find((a) => a.type === 'pay') ||
+      state.accounts.find((a) => a.type !== 'card' && /카카오\s*페이/i.test(a.name)) || null;
+    const payName = (acc && (acc.payName || acc.name)) || '카카오페이';
+    const pseudo = { ...(acc || { id: '__none', name: payName }), type: 'pay', payName };
+    const txs = state.transactions.filter((t) => applyPayRules({ ...t }, [pseudo]));
+    return { account: acc, payName, needsType: !!acc && acc.type !== 'pay', txs };
+  }
+
   // 기간별 페이 머니 흐름: 충전(다른 계좌에서 옮긴 돈)과 페이 결제내역
   function payFlows(state, period) {
     const txs = txsInPeriod(state, period);
@@ -1102,6 +1113,7 @@
     applyPayRules,
     payFlows,
     payDoubleCounts,
+    payTopupCandidates,
     txPeriod,
     txsInPeriod,
     shiftPeriod,

@@ -638,6 +638,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
             <div class="row-actions">
               <button id="reclassify-unclassified" class="ghost-btn small-btn">미분류만 다시 분류</button>
               <button id="reclassify-all" class="ghost-btn small-btn">이 기간 전체 다시 분류</button>
+              <button id="pay-topups" class="ghost-btn small-btn">카카오페이 출금 → 내 계좌 이체</button>
             </div>
             <div id="list-total" class="list-total"></div>
             <div id="tx-list"></div>
@@ -800,7 +801,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
               <div class="card" id="set-data">
                 <h2>데이터</h2>
                 <p id="data-note" class="muted small"></p>
-                <p class="muted small">앱 버전 <code id="build-id">26a2b05</code></p>
+                <p class="muted small">앱 버전 <code id="build-id">9913b14</code></p>
                 <div class="row-actions">
                   <button id="export-btn" class="ghost-btn">백업 내보내기(JSON)</button>
                   <label class="ghost-btn file-btn">백업 불러오기<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -1272,6 +1273,17 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
       if (txs.length) out.push({ account: a, payName: pseudo.payName, needsType: a.type !== 'pay', txs, total: txs.reduce((s, t) => s + (kindOf(t) === 'expense' ? t.amount : 0), 0) });
     }
     return out;
+  }
+
+  // '카카오페이 출금 정리' 버튼용: 정리할 페이 이름과 계정, 바꿀 내역.
+  // 간편결제 머니로 등록한 계정이 없으면 이름이 카카오페이인 계정, 그것도 없으면 '카카오페이' 이름만으로 찾는다.
+  function payTopupCandidates(state) {
+    const acc = state.accounts.find((a) => a.type === 'pay') ||
+      state.accounts.find((a) => a.type !== 'card' && /카카오\s*페이/i.test(a.name)) || null;
+    const payName = (acc && (acc.payName || acc.name)) || '카카오페이';
+    const pseudo = { ...(acc || { id: '__none', name: payName }), type: 'pay', payName };
+    const txs = state.transactions.filter((t) => applyPayRules({ ...t }, [pseudo]));
+    return { account: acc, payName, needsType: !!acc && acc.type !== 'pay', txs };
   }
 
   // 기간별 페이 머니 흐름: 충전(다른 계좌에서 옮긴 돈)과 페이 결제내역
@@ -1932,6 +1944,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     applyPayRules,
     payFlows,
     payDoubleCounts,
+    payTopupCandidates,
     txPeriod,
     txsInPeriod,
     shiftPeriod,
@@ -2497,9 +2510,12 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
         const exists = known.has(t.categoryId);
         return onlyUnclassified ? !exists : !(t.method === 'manual' && exists);
       });
-      const res = await store.classify(targets);
       const now = nowISO();
-      targets.forEach((t, i) => Object.assign(t, res[i], { classifiedAt: now }));
+      // 간편결제 머니 충전 출금은 항목 대신 내 계좌 이체로
+      targets.filter((t) => L.applyPayRules(t, store.state.accounts)).forEach((t) => Object.assign(t, { classifiedAt: now }));
+      const rest = targets.filter((t) => L.kindOf(t) === 'expense');
+      const res = rest.length ? await store.classify(rest) : [];
+      rest.forEach((t, i) => Object.assign(t, res[i], { classifiedAt: now }));
       saveLocal();
       return targets.length;
     },
@@ -3326,6 +3342,26 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     toast(`'${g.memo}' ${done}건을 ${what}(으)로 정리했어요.` +
       (skipped ? ` (${skipped}건은 그때 계획에 이 항목이 없어 남겨 뒀어요)` : '') +
       (categoryId && learn ? ' 자동 분류 규칙도 만들었어요.' : ''));
+    render();
+  }
+
+  // 모든 기간의 카카오페이 출금(충전)을 한 번에 '내 계좌 이체'로 바꾼다.
+  // 다음부터 자동으로 되도록 카카오페이를 간편결제 머니로 등록(없으면 새로 추가)한다.
+  async function fixPayTopups() {
+    const c = L.payTopupCandidates(S());
+    if (!c.txs.length) return toast(`'${c.payName}'(으)로 찍힌 지출·입금이 없어요. 이미 모두 내 계좌 이체예요.`);
+    const total = c.txs.filter((t) => L.kindOf(t) === 'expense').reduce((s, t) => s + t.amount, 0);
+    if (!confirm(`'${c.payName}'(으)로 빠져나간 내역 ${c.txs.length}건(${won(total)})을 모두 '내 계좌 이체'로 바꿀까요? 지출에서 빠지고, 카카오페이 결제내역으로만 지출을 셉니다.`)) return;
+    if (!c.account) {
+      S().accounts.push({ id: `a-${uid()}`, name: '카카오페이', type: 'pay', payName: c.payName, last4: '', isSavings: false, balance: null, balanceAt: '' });
+    } else if (c.needsType) {
+      Object.assign(c.account, { type: 'pay', payName: c.payName, isSavings: false });
+    }
+    store.saveMeta();
+    await busy(`바꾸는 중… (${c.txs.length}건)`, async () => {
+      for (const t of c.txs) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
+    });
+    toast(`${c.txs.length}건을 내 계좌 이체로 바꿨어요. 앞으로 들어오는 카카오페이 출금도 자동으로 내 계좌 이체가 돼요.`);
     render();
   }
 
@@ -4159,6 +4195,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     $('#list-account').addEventListener('change', (e) => setFilter('account', e.target.value));
     $('#reclassify-unclassified').addEventListener('click', quiet(() => runReclassify(true)));
     $('#reclassify-all').addEventListener('click', quiet(() => runReclassify(false)));
+    $('#pay-topups').addEventListener('click', quiet(fixPayTopups));
 
     // 예산 계획
     $('#ratio-base').addEventListener('change', (e) => {

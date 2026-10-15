@@ -270,9 +270,13 @@ function reclassify_(start, end, onlyUnclassified) {
     return !(t.method === 'manual' && exists);
   });
   if (!targets.length) return [];
-  var res = classifyItems_(targets, meta);
   var now = nowISO_();
-  targets.forEach(function (t, i) {
+  // 간편결제 머니(카카오페이 등) 충전 출금은 항목을 고르지 않고 내 계좌 이체로 바꾼다
+  var moved = targets.filter(function (t) { return BL.applyPayRules(t, meta.accounts); });
+  moved.forEach(function (t) { t.classifiedAt = now; });
+  var rest = targets.filter(function (t) { return BL.kindOf(t) === 'expense'; });
+  var res = rest.length ? classifyItems_(rest, meta) : [];
+  rest.forEach(function (t, i) {
     t.categoryId = res[i].categoryId;
     t.method = res[i].method;
     t.classifiedAt = now;

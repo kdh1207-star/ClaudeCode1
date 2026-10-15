@@ -6,10 +6,11 @@
   <title>내 지출 관리</title>
   <link href="https://fonts.googleapis.com" rel="preconnect">
   <link href="https://fonts.gstatic.com" rel="preconnect" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@700;800&family=IBM+Plex+Sans+KR:wght@400;500;700&family=Unbounded:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Do+Hyeon&family=Gothic+A1:wght@700;800&family=IBM+Plex+Sans+KR:wght@400;500;700&family=Share+Tech+Mono&family=Unbounded:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <script>try { var t = localStorage.getItem("budget-theme"); if (t) document.documentElement.setAttribute("data-skin", t); } catch (e) {}</script>
   <noscript>
     <div style="padding:16px;margin:12px;border-radius:12px;background:#fde8b8;color:#0b0b0b;font:15px/1.5 sans-serif">
       이 화면에서는 앱의 기능(자바스크립트)이 실행되지 않아요. 파일 앱의 <b>미리보기</b>가 아니라 <b>크롬·삼성 인터넷·사파리</b> 같은 브라우저로 열어 주세요.
@@ -298,6 +299,12 @@
                   </label>
                   <label>내 이름
                     <input type="text" id="my-name" placeholder="홍길동" autocomplete="name">
+                  </label>
+                  <label>테마
+                    <select id="theme-select">
+                      <option value="y2k">Y2K 크롬</option>
+                      <option value="cyber">사이버펑크</option>
+                    </select>
                   </label>
                 </div>
                 <p class="muted small">기간: 예를 들어 25일로 하면 9/25 ~ 10/24 가 한 기간입니다. 없는 날짜(31일 등)는 그 달의 말일로 계산합니다.<br>내 이름: 이체 알림의 상대방이 내 이름이면 내 계좌끼리 옮긴 돈으로 보고 지출에서 뺍니다.</p>

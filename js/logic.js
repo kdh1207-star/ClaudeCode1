@@ -1092,7 +1092,7 @@
 
     return {
       version: 2,
-      settings: { startDay, myName: String(settings.myName || '') },
+      settings: { startDay, myName: String(settings.myName || ''), theme: settings.theme === 'cyber' ? 'cyber' : 'y2k' },
       plans,
       accounts,
       incomes: raw.incomes && typeof raw.incomes === 'object' ? raw.incomes : {},

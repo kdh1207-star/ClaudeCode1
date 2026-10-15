@@ -188,6 +188,7 @@
   // ---------- 공통 머리 ----------
 
   function renderChrome() {
+    applyTheme(); // 다른 기기에서 테마를 바꿨을 수도 있으니 불러올 때마다 맞춘다
     const chip = $('#conn-status');
     if (store.mode === 'local') {
       chip.textContent = '이 기기에만 저장';
@@ -1300,6 +1301,7 @@
     if (!sd.options.length) sd.innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">매월 ${i + 1}일</option>`).join('');
     sd.value = String(S().settings.startDay);
     $('#my-name').value = S().settings.myName || '';
+    $('#theme-select').value = S().settings.theme || 'y2k';
     renderAccountRows();
     renderRules();
     renderAutoCard();
@@ -1660,6 +1662,11 @@
 
     // 설정
     $('#start-day').addEventListener('change', (e) => changeStartDay(Number(e.target.value)));
+    $('#theme-select').addEventListener('change', (e) => {
+      S().settings.theme = e.target.value === 'cyber' ? 'cyber' : 'y2k';
+      store.saveMeta();
+      applyTheme();
+    });
     $('#my-name').addEventListener('change', (e) => {
       S().settings.myName = e.target.value.trim();
       store.saveMeta();
@@ -1729,7 +1736,24 @@
     });
   }
 
-  // 배경: Y2K 4갈래 반짝임과 작은 별점을 흩뿌린다 (매번 같은 무늬가 나오도록 고정 씨앗)
+  // 테마: <html data-skin> 로 겉모습을 바꾸고, 다음에 열 때 깜빡이지 않게 이 기기에도 기억한다
+  function applyTheme() {
+    const t = S().settings.theme === 'cyber' ? 'cyber' : 'y2k';
+    if (document.documentElement.getAttribute('data-skin') === t) return;
+    document.documentElement.setAttribute('data-skin', t);
+    try {
+      localStorage.setItem('budget-theme', t);
+    } catch (e) {
+      /* 저장 못 해도 괜찮음 */
+    }
+    try {
+      drawBackdrop();
+    } catch (e) {
+      /* 장식 */
+    }
+  }
+
+  // 배경 장식 (매번 같은 무늬가 나오도록 고정 씨앗). Y2K: 4갈래 반짝임·별점 / 사이버펑크: HUD 표식·데이터 조각
   function drawBackdrop() {
     let cv = document.getElementById('backdrop');
     if (!cv) {
@@ -1750,6 +1774,32 @@
     let seed = 20261015;
     const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
     const area = (w * h) / (390 * 844);
+    if (document.documentElement.getAttribute('data-skin') === 'cyber') {
+      // 작은 + 표식, 모서리 괄호, 짧은 데이터 막대
+      const cols = ['0, 240, 255', '252, 238, 10', '255, 31, 75'];
+      g.lineWidth = 1;
+      for (let i = 0; i < 18 * area; i++) {
+        const x = Math.round(rnd() * w) + 0.5;
+        const y = Math.round(rnd() * h) + 0.5;
+        const c = cols[rnd() < 0.7 ? 0 : rnd() < 0.6 ? 1 : 2];
+        g.strokeStyle = `rgba(${c}, ${0.18 + rnd() * 0.3})`;
+        g.beginPath();
+        if (rnd() < 0.55) {
+          const r = 3 + Math.round(rnd() * 3);
+          g.moveTo(x - r, y); g.lineTo(x + r, y); g.moveTo(x, y - r); g.lineTo(x, y + r);
+        } else {
+          const r = 6 + Math.round(rnd() * 8);
+          g.moveTo(x, y + r); g.lineTo(x, y); g.lineTo(x + r, y);
+        }
+        g.stroke();
+      }
+      for (let i = 0; i < 26 * area; i++) {
+        const c = cols[rnd() < 0.6 ? 0 : rnd() < 0.5 ? 1 : 2];
+        g.fillStyle = `rgba(${c}, ${0.08 + rnd() * 0.22})`;
+        g.fillRect(Math.round(rnd() * w), Math.round(rnd() * h), 4 + Math.round(rnd() * 28), rnd() < 0.8 ? 1 : 2);
+      }
+      return;
+    }
     const tints = ['236, 244, 255', '143, 227, 255', '201, 168, 255', '255, 158, 224'];
 
     // 작은 별점
@@ -1808,6 +1858,7 @@
       await busy('이 기기 데이터를 옮기는 중…', () => store.importState(toMigrate)).catch(() => {});
       toast('이 기기 데이터를 구글 시트로 옮겼습니다.');
     }
+    applyTheme();
     currentPeriod = L.getPeriod(L.todayISO(), S().settings.startDay);
     showPage(location.hash.slice(1) || 'home', { push: false });
   }

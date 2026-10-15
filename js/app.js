@@ -110,6 +110,7 @@
   let manualKind = 'expense';
 
   const planForDate = (date) => store.planForDate(date);
+  const planForTx = (t) => store.planForTx(t);
   const currentPlan = () => L.planFor(S(), currentPeriod.key);
 
   function categoryInfo(id, categories = currentPlan().categories) {
@@ -230,7 +231,7 @@
 
   function txRow(t, { editable = true } = {}) {
     const kind = L.kindOf(t);
-    const cats = planForDate(t.date).categories;
+    const cats = planForTx(t).categories;
     const info = categoryInfo(t.categoryId, cats);
     let icon;
     let amount;
@@ -261,6 +262,22 @@
     if (kind === 'expense' && info.colorIndex >= 0) meta.push(methodTag(t.method));
     if (t.accountId && accountName(t.accountId)) meta.push(`<span>${esc(accountName(t.accountId))}</span>`);
     if (t.source === 'sms' || t.source === 'bank') meta.push(`<span class="tag">${t.source === 'bank' ? '은행 알림' : '문자'}</span>`);
+    // 날짜는 그대로 두고 계산할 기간만 앞뒤로 옮긴다 (예: 시작일 하루 전에 들어온 월급)
+    const shift = Math.trunc(Number(t.periodShift) || 0);
+    if (editable) {
+      const sd = S().settings.startDay;
+      const own = L.getPeriod(t.date, sd);
+      const short = (n) => {
+        const q = L.parseISO((n ? L.shiftPeriod(own, n, sd) : own).start);
+        return `${q.m}/${q.d}~`;
+      };
+      const shifts = [...new Set([-1, 0, 1, shift])].sort((a, b) => a - b);
+      meta.push(`<select class="tx-move" data-id="${esc(t.id)}" aria-label="계산할 기간">
+        ${shifts.map((n) => `<option value="${n}" ${n === shift ? 'selected' : ''}>${n === 0 ? `실제 날짜 기간(${short(0)})` : `${short(n)} 기간으로 옮김`}</option>`).join('')}
+      </select>`);
+    } else if (shift) {
+      meta.push(`<span class="tag">${shift > 0 ? '다음' : '이전'} 기간으로 옮김</span>`);
+    }
     return `
       <div class="tx">
         ${icon}
@@ -302,7 +319,15 @@
       }
       // 이 내역 하나만 바꾼다. 같은 가맹점·상대를 계속 같은 항목으로 넣으려면 설정 → 자동 분류 규칙에서 따로 만든다.
       await busy(null, () => store.updateTransaction(t.id, { kind: 'expense', categoryId: s.value || null, method: s.value ? 'manual' : null }));
-      toast(`이 내역만 ${categoryInfo(s.value || null, planForDate(t.date).categories).name}(으)로 바꿨어요.`);
+      toast(`이 내역만 ${categoryInfo(s.value || null, planForTx(t).categories).name}(으)로 바꿨어요.`);
+      render();
+    })));
+    container.querySelectorAll('.tx-move').forEach((s) => s.addEventListener('change', quiet(async () => {
+      const t = S().transactions.find((x) => x.id === s.dataset.id);
+      const n = Math.trunc(Number(s.value) || 0);
+      await busy(null, () => store.updateTransaction(t.id, { periodShift: n }));
+      const p = L.txPeriod(t, S().settings.startDay);
+      toast(n ? `날짜는 그대로 두고 ${fmtDate(p.start)} 기간에 계산해요.` : '원래 날짜의 기간으로 되돌렸어요.');
       render();
     })));
     container.querySelectorAll('.tx-del').forEach((b) => b.addEventListener('click', quiet(async () => {
@@ -528,7 +553,9 @@
   function renderCalendar() {
     const p = currentPeriod;
     const sum = L.summarizePeriod(S(), p);
-    const days = L.dailyTotals(sum.allTransactions);
+    // 달력은 실제 날짜 기준 (다른 기간으로 옮긴 내역도 쓴 날에 보인다)
+    const dated = S().transactions.filter((t) => t.date >= p.start && t.date <= p.end);
+    const days = L.dailyTotals(dated);
     const today = L.todayISO();
     if (!selectedDate || selectedDate < p.start || selectedDate > p.end) selectedDate = today >= p.start && today <= p.end ? today : p.start;
 
@@ -563,7 +590,7 @@
       renderCalendar();
     }));
 
-    const dayTxs = sum.allTransactions.filter((t) => t.date === selectedDate);
+    const dayTxs = dated.filter((t) => t.date === selectedDate);
     $('#day-title').textContent = fmtDay(selectedDate);
     const info = days[selectedDate];
     $('#day-total').textContent = info ? `지출 ${won(info.spent)}${info.income ? ` · 입금 ${won(info.income)}` : ''}` : '';
@@ -638,7 +665,7 @@
       return;
     }
     el.innerHTML = groups.map((g, gi) => {
-      const cats = planForDate(g.latest).categories;
+      const cats = planForTx(g.items[0]).categories;
       const days = [...new Set(g.items.map((t) => t.date))];
       const dates = days.slice(0, 3).map(fmtDay).join(', ') + (days.length > 3 ? ` 외 ${days.length - 3}일` : '');
       const raw = g.items.find((t) => t.raw)?.raw;
@@ -678,14 +705,14 @@
         if (kind) {
           await store.updateTransaction(t.id, { kind, categoryId: null, method: null });
           done += 1;
-        } else if (planForDate(t.date).categories.some((c) => c.id === categoryId)) {
+        } else if (planForTx(t).categories.some((c) => c.id === categoryId)) {
           // 그 날짜의 계획에 없는 항목이면 건너뛴다 (지난 기간 계획과 항목이 다를 수 있음)
           await store.updateTransaction(t.id, { kind: 'expense', categoryId, method: 'manual' });
           done += 1;
         }
       }
     });
-    const what = kind === 'transfer' ? '내 계좌 이동' : kind === 'income' ? '입금' : categoryInfo(categoryId, planForDate(g.latest).categories).name;
+    const what = kind === 'transfer' ? '내 계좌 이동' : kind === 'income' ? '입금' : categoryInfo(categoryId, planForTx(g.items[0]).categories).name;
     const skipped = g.items.length - done;
     toast(`'${g.memo}' ${done}건을 ${what}(으)로 정리했어요.` +
       (skipped ? ` (${skipped}건은 그때 계획에 이 항목이 없어 남겨 뒀어요)` : '') +

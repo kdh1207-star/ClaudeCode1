@@ -15,7 +15,7 @@
 var BL = BudgetLogic;
 var TX_SHEET = '지출';
 var META_SHEET = '설정';
-var TX_HEADERS = ['id', 'date', 'amount', 'memo', 'categoryId', 'categoryName', 'method', 'source', 'raw', 'createdAt', 'classifiedAt', 'kind', 'accountId'];
+var TX_HEADERS = ['id', 'date', 'amount', 'memo', 'categoryId', 'categoryName', 'method', 'source', 'raw', 'createdAt', 'classifiedAt', 'kind', 'accountId', 'periodShift'];
 var DEFAULT_MODEL = 'claude-opus-5-5';
 var MODELS = ['claude-opus-5-5', 'claude-haiku-5-5'];
 var TZ = 'Asia/Seoul';
@@ -217,7 +217,7 @@ function classifyItems_(items, meta) {
   var results = items.map(function () { return { categoryId: null, method: null }; });
   var groups = {}; // 계획(from) 별로 묶어서 AI 호출
   items.forEach(function (it, i) {
-    var plan = BL.planFor(meta, BL.getPeriod(it.date, meta.settings.startDay).key);
+    var plan = BL.planFor(meta, BL.txPeriod(it, meta.settings.startDay).key);
     var local = BL.classifyLocal(it.memo, plan.categories, meta.merchantMap);
     if (local.method === 'learned') {
       results[i] = local;
@@ -248,10 +248,11 @@ function classifyItems_(items, meta) {
 function reclassify_(start, end, onlyUnclassified) {
   var meta = loadMeta_();
   var txs = readTransactions_();
+  var periodKey = BL.getPeriod(start, meta.settings.startDay).key;
   var targets = txs.filter(function (t) {
-    if (t.date < start || t.date > end) return false;
+    if (BL.txPeriod(t, meta.settings.startDay).key !== periodKey) return false; // 다른 기간으로 옮긴 내역은 옮긴 기간 기준
     if (BL.kindOf(t) !== 'expense') return false;
-    var plan = BL.planFor(meta, BL.getPeriod(t.date, meta.settings.startDay).key);
+    var plan = BL.planFor(meta, periodKey);
     var exists = plan.categories.some(function (c) { return c.id === t.categoryId; });
     if (onlyUnclassified) return !t.categoryId || !exists;
     return !(t.method === 'manual' && exists);
@@ -273,7 +274,7 @@ function updateTransaction_(id, patch) {
   var txs = readTransactions_();
   var tx = txs.filter(function (t) { return t.id === id; })[0];
   if (!tx) throw new Error('not found: ' + id);
-  ['date', 'amount', 'memo', 'categoryId', 'method', 'kind', 'accountId'].forEach(function (k) {
+  ['date', 'amount', 'memo', 'categoryId', 'method', 'kind', 'accountId', 'periodShift'].forEach(function (k) {
     if (patch[k] !== undefined) tx[k] = patch[k];
   });
   tx.classifiedAt = nowISO_();
@@ -466,16 +467,17 @@ function readTransactions_() {
         classifiedAt: cellToString_(r[10]),
         kind: cellToString_(r[11]) || 'expense',
         accountId: cellToString_(r[12]) || null,
+        periodShift: Math.trunc(Number(r[13]) || 0),
       };
     });
 }
 
 function txToRow_(t, meta) {
-  var plan = BL.planFor(meta, BL.getPeriod(t.date, meta.settings.startDay).key);
+  var plan = BL.planFor(meta, BL.txPeriod(t, meta.settings.startDay).key);
   var cat = plan.categories.filter(function (c) { return c.id === t.categoryId; })[0];
   var kind = BL.kindOf(t);
   var label = kind === 'income' ? '입금' : kind === 'transfer' ? '내 계좌 이체' : cat ? cat.name : '미분류';
-  return [t.id, t.date, t.amount, t.memo, t.categoryId || '', label, t.method || '', t.source || '', t.raw || '', t.createdAt || '', t.classifiedAt || '', kind, t.accountId || ''];
+  return [t.id, t.date, t.amount, t.memo, t.categoryId || '', label, t.method || '', t.source || '', t.raw || '', t.createdAt || '', t.classifiedAt || '', kind, t.accountId || '', Math.trunc(Number(t.periodShift) || 0) || ''];
 }
 
 function appendTxRows_(txs, meta) {

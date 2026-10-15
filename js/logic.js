@@ -138,8 +138,16 @@
     return t.kind === 'income' || t.kind === 'transfer' ? t.kind : 'expense';
   }
 
+  // 내역이 계산되는 기간. 실제 날짜는 그대로 두고 periodShift(+1 다음 기간, -1 이전 기간)만큼 옮길 수 있다.
+  // (월급이 시작일 하루 전에 들어온 경우 등. 시작일을 바꿔도 몇 기간 옮겼는지만 저장하니 어긋나지 않는다)
+  function txPeriod(t, startDay) {
+    const p = getPeriod(t.date, startDay);
+    const n = Math.trunc(Number(t.periodShift) || 0);
+    return n ? shiftPeriod(p, n, startDay) : p;
+  }
+
   function txsInPeriod(state, period) {
-    return state.transactions.filter((t) => t.date >= period.start && t.date <= period.end);
+    return state.transactions.filter((t) => txPeriod(t, state.settings.startDay).key === period.key);
   }
 
   function summarizePeriod(state, period) {
@@ -450,7 +458,7 @@
   // 미분류 = 지출인데 항목이 없거나, 그 날짜가 속한 기간의 계획에 없는 항목인 것
   function isUnclassified(state, t) {
     if (kindOf(t) !== 'expense') return false;
-    const cats = planFor(state, getPeriod(t.date, state.settings.startDay).key).categories;
+    const cats = planFor(state, txPeriod(t, state.settings.startDay).key).categories;
     return !(t.categoryId && cats.some((c) => c.id === t.categoryId));
   }
 
@@ -459,7 +467,7 @@
     const byKey = new Map();
     for (const t of state.transactions) {
       if (!isUnclassified(state, t)) continue;
-      const p = getPeriod(t.date, state.settings.startDay);
+      const p = txPeriod(t, state.settings.startDay);
       if (!byKey.has(p.key)) byKey.set(p.key, { period: p, count: 0, total: 0 });
       const e = byKey.get(p.key);
       e.count += 1;
@@ -472,7 +480,7 @@
   function unclassifiedGroups(state, period) {
     const byKey = new Map();
     for (const t of state.transactions) {
-      if (period && (t.date < period.start || t.date > period.end)) continue;
+      if (period && txPeriod(t, state.settings.startDay).key !== period.key) continue;
       if (!isUnclassified(state, t)) continue;
       const key = normalizeMerchant(t.memo) || t.memo;
       if (!byKey.has(key)) byKey.set(key, { key, memo: t.memo, items: [], total: 0, latest: '' });
@@ -1022,6 +1030,8 @@
     todayISO,
     daysInMonth,
     getPeriod,
+    txPeriod,
+    txsInPeriod,
     shiftPeriod,
     computeBudgets,
     summarizePeriod,

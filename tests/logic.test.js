@@ -394,3 +394,26 @@ test('미분류 정리: 미분류 지출을 가맹점별로 묶고, 그 기간 �
     ['2026-09-01', 1, 7000],
   ]);
 });
+
+test('기간 옮기기: 날짜는 그대로, 계산되는 기간만 바뀐다 (시작일을 바꿔도 유지)', () => {
+  const st = L.normalizeState({
+    settings: { startDay: 10 },
+    incomes: {},
+    transactions: [
+      { id: 'pay', date: '2026-10-09', amount: 3000000, memo: '월급', kind: 'income', periodShift: 1 },
+      { id: 'eat', date: '2026-10-09', amount: 9000, memo: '김밥', kind: 'expense', categoryId: null },
+    ],
+  });
+  const sep = L.getPeriod('2026-10-09', 10); // 9/10 ~ 10/9
+  const oct = L.getPeriod('2026-10-10', 10); // 10/10 ~ 11/9
+  assert.equal(L.txPeriod(st.transactions[0], 10).key, oct.key);
+  assert.deepEqual(L.txsInPeriod(st, sep).map((t) => t.id), ['eat']);
+  assert.deepEqual(L.txsInPeriod(st, oct).map((t) => t.id), ['pay']);
+  assert.equal(L.summarizePeriod(st, oct).incomeReceived, 3000000);
+  assert.equal(L.summarizePeriod(st, sep).incomeReceived, 0);
+  assert.equal(st.transactions[0].date, '2026-10-09');
+
+  // 시작일을 25일로 바꿔도 "다음 기간" 은 그대로 다음 기간
+  L.remapPeriodKeys(st, 25);
+  assert.equal(L.txPeriod(st.transactions[0], 25).key, L.shiftPeriod(L.getPeriod('2026-10-09', 25), 1, 25).key);
+});

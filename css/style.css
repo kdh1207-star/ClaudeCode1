@@ -471,3 +471,4 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
 .rule-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); font-size: 14px; }
 .rule-name { font-weight: 600; overflow-wrap: anywhere; }
 .rule-arrow { color: var(--text-2); }
+.tx-meta select.tx-move { max-width: 150px; color: var(--text-2); }

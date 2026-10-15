@@ -88,6 +88,11 @@
     return L.planFor(store.state, L.getPeriod(date, store.state.settings.startDay).key);
   }
 
+  // 내역이 계산되는 기간(다른 기간으로 옮겼으면 그 기간)의 계획
+  function planForTx(t) {
+    return L.planFor(store.state, L.txPeriod(t, store.state.settings.startDay).key);
+  }
+
   function saveLocal() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(store.state));
@@ -119,6 +124,7 @@
 
   Object.assign(store, {
     planForDate,
+    planForTx,
     readLocalState,
 
     async init() {
@@ -189,7 +195,7 @@
     // items: [{date, amount, memo}] → [{categoryId, method}]
     async classify(items) {
       if (store.mode === 'local') {
-        return items.map((it) => L.classifyLocal(it.memo, planForDate(it.date).categories, store.state.merchantMap));
+        return items.map((it) => L.classifyLocal(it.memo, planForTx(it).categories, store.state.merchantMap));
       }
       await store.flushMeta();
       return (await callApi('classify', { items })).results;
@@ -257,10 +263,10 @@
         for (const u of r.updated) Object.assign(store.state.transactions.find((t) => t.id === u.id) || {}, u);
         return r.updated.length;
       }
-      const plan = planForDate(period.start);
+      const plan = L.planFor(store.state, period.key);
       const known = new Set(plan.categories.map((c) => c.id));
       const targets = store.state.transactions.filter((t) => {
-        if (t.date < period.start || t.date > period.end || L.kindOf(t) !== 'expense') return false;
+        if (L.txPeriod(t, store.state.settings.startDay).key !== period.key || L.kindOf(t) !== 'expense') return false;
         const exists = known.has(t.categoryId);
         return onlyUnclassified ? !exists : !(t.method === 'manual' && exists);
       });

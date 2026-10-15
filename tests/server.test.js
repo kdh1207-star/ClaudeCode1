@@ -136,7 +136,7 @@ test('카드 문자 → Claude 가 읽고 분류해서 시트에 기록', () => 
   const rows = env.sheets['지출'].rows;
   assert.equal(rows.length, 2);
   assert.deepEqual(rows[1].slice(1, 8), ['2026-09-28', 12000, '김밥천국 역삼점', 'c-food', '식비', 'ai', 'sms']);
-  assert.deepEqual(rows[1].slice(11), ['expense', '']);
+  assert.deepEqual(rows[1].slice(11), ['expense', '', '']);
 
   // 같은 문자가 또 오면 중복으로 무시
   assert.equal(env.sms(SMS).reason, 'duplicate');
@@ -220,6 +220,12 @@ test('화면에서 추가: 자동 분류는 AI, 직접 고른 항목은 그대�
   assert.equal(loaded.length, 3);
   const upd = env.api('updateTransaction', { id: loaded[0].id, patch: { categoryId: 'c-fun', method: 'manual' } });
   assert.equal(upd.tx.categoryId, 'c-fun');
+  // 날짜는 그대로 두고 다음 기간으로 옮기기 → 시트에 저장되고 다시 읽힌다
+  const moved = env.api('updateTransaction', { id: loaded[1].id, patch: { periodShift: 1 } });
+  assert.equal(moved.tx.periodShift, 1);
+  const again = env.api('load').state.transactions.find((t) => t.id === loaded[1].id);
+  assert.equal(again.periodShift, 1);
+  assert.equal(again.date, '2026-09-28');
   env.api('deleteTransaction', { id: loaded[2].id });
   assert.equal(env.api('load').state.transactions.length, 2);
 });

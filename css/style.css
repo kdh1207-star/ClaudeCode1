@@ -175,6 +175,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .note-card { background: var(--surface-2); box-shadow: none; }
 .note-card p { margin: 4px 0 8px; }
 .warn-card { background: var(--warning-track); border-color: transparent; }
+.card .sub-head { margin-top: 18px; }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 input, select, textarea {

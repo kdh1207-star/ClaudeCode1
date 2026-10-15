@@ -104,6 +104,7 @@
         <section class="page" data-page="home">
           <div id="income-box" class="card"></div>
           <div id="stale-box"></div>
+          <div id="fixed-box"></div>
           <div class="grid-2">
             <div class="card hero-card" id="hero"></div>
             <div class="card" id="home-summary"></div>
@@ -201,6 +202,12 @@
               <option value="afterFixed">수입에서 고정 항목을 뺀 나머지</option>
               <option value="income">전체 수입</option>
             </select>
+            <h2 class="sub-head">고정 항목 합계가 수입보다 클 때</h2>
+            <select id="fixed-overflow" class="full">
+              <option value="warn">그대로 두고 알려 주기</option>
+              <option value="scale">수입에 맞게 비율대로 줄이기</option>
+            </select>
+            <p class="muted small">줄이기를 고르면 고정 항목끼리의 비율은 그대로 두고, 합계가 그 기간 수입과 같아지도록 한도를 낮춥니다. 예: 월세 60만·통신 10만(합 70만)인데 수입이 56만이면 월세 48만·통신 8만.</p>
           </div>
           <div class="card">
             <div class="card-head">

@@ -182,6 +182,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .note-card { background: var(--surface-2); box-shadow: none; }
 .note-card p { margin: 4px 0 8px; }
 .warn-card { background: var(--warning-track); border-color: transparent; }
+.card .sub-head { margin-top: 18px; }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 input, select, textarea {
@@ -554,6 +555,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
         <section class="page" data-page="home">
           <div id="income-box" class="card"></div>
           <div id="stale-box"></div>
+          <div id="fixed-box"></div>
           <div class="grid-2">
             <div class="card hero-card" id="hero"></div>
             <div class="card" id="home-summary"></div>
@@ -651,6 +653,12 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
               <option value="afterFixed">수입에서 고정 항목을 뺀 나머지</option>
               <option value="income">전체 수입</option>
             </select>
+            <h2 class="sub-head">고정 항목 합계가 수입보다 클 때</h2>
+            <select id="fixed-overflow" class="full">
+              <option value="warn">그대로 두고 알려 주기</option>
+              <option value="scale">수입에 맞게 비율대로 줄이기</option>
+            </select>
+            <p class="muted small">줄이기를 고르면 고정 항목끼리의 비율은 그대로 두고, 합계가 그 기간 수입과 같아지도록 한도를 낮춥니다. 예: 월세 60만·통신 10만(합 70만)인데 수입이 56만이면 월세 48만·통신 8만.</p>
           </div>
           <div class="card">
             <div class="card-head">
@@ -849,25 +857,55 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
    *   ratio → value 는 퍼센트, fixed → value 는 원 단위 금액
    * ratioBase: 'income'     → 비율 항목은 전체 수입 기준
    *            'afterFixed' → 비율 항목은 (수입 - 고정 항목 합계) 기준
+   * fixedOverflow: 고정 항목 합계가 수입보다 클 때
+   *            'warn'  → 정한 금액 그대로 두고 화면에서 알린다 (기본)
+   *            'scale' → 고정 항목끼리의 비율을 유지한 채 합계가 수입과 같아지도록 줄인다
+   * 수입이 0(아직 입력 안 함)이면 줄이지 않는다.
    */
-  function computeBudgets(categories, income, ratioBase) {
+  function computeBudgets(categories, income, ratioBase, fixedOverflow) {
     const inc = Math.max(0, Number(income) || 0);
-    const fixedTotal = categories
-      .filter((c) => c.type === 'fixed')
-      .reduce((s, c) => s + (Number(c.value) || 0), 0);
+    const fixedCats = categories.filter((c) => c.type === 'fixed');
+    const fixedTotal = fixedCats.reduce((s, c) => s + Math.round(Number(c.value) || 0), 0);
     const ratioPercentTotal = categories
       .filter((c) => c.type === 'ratio')
       .reduce((s, c) => s + (Number(c.value) || 0), 0);
-    const base = ratioBase === 'afterFixed' ? Math.max(0, inc - fixedTotal) : inc;
+    const fixedOver = inc > 0 ? Math.max(0, fixedTotal - inc) : 0;
+    const fixedScaled = fixedOverflow === 'scale' && fixedOver > 0;
 
     const budgets = {};
+    for (const c of fixedCats) budgets[c.id] = Math.round(Number(c.value) || 0);
+    if (fixedScaled) {
+      // 비례해서 내림한 뒤, 남은 몇 원은 소수점 아래가 큰 항목부터 1원씩 더해 합계를 수입과 정확히 맞춘다
+      const parts = fixedCats.map((c) => {
+        const exact = (budgets[c.id] * inc) / fixedTotal;
+        return { id: c.id, floor: Math.floor(exact), frac: exact - Math.floor(exact) };
+      });
+      let left = inc - parts.reduce((s, x) => s + x.floor, 0);
+      parts.sort((a, b) => b.frac - a.frac);
+      for (const x of parts) {
+        budgets[x.id] = x.floor + (left > 0 ? 1 : 0);
+        if (left > 0) left -= 1;
+      }
+    }
+    const fixedBudgetTotal = fixedCats.reduce((s, c) => s + budgets[c.id], 0);
+    const base = ratioBase === 'afterFixed' ? Math.max(0, inc - fixedBudgetTotal) : inc;
+
     for (const c of categories) {
-      budgets[c.id] = c.type === 'fixed'
-        ? Math.round(Number(c.value) || 0)
-        : Math.round((base * (Number(c.value) || 0)) / 100);
+      if (c.type !== 'fixed') budgets[c.id] = Math.round((base * (Number(c.value) || 0)) / 100);
     }
     const allocated = Object.values(budgets).reduce((s, v) => s + v, 0);
-    return { budgets, fixedTotal, ratioPercentTotal, ratioBaseAmount: base, allocated, unallocated: inc - allocated };
+    return {
+      budgets,
+      fixedTotal,
+      fixedBudgetTotal,
+      fixedOver,
+      fixedScaled,
+      fixedScale: fixedScaled ? inc / fixedTotal : 1,
+      ratioPercentTotal,
+      ratioBaseAmount: base,
+      allocated,
+      unallocated: inc - allocated,
+    };
   }
 
   // 거래 종류: expense(지출, 기본) / income(입금) / transfer(내 계좌끼리 이체 — 지출·수입에서 제외)
@@ -883,7 +921,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     const plan = planFor(state, period.key);
     const income = state.incomes[period.key];
     const hasIncome = typeof income === 'number';
-    const calc = computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase);
+    const calc = computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase, plan.fixedOverflow);
     const all = txsInPeriod(state, period);
     const txs = all.filter((t) => kindOf(t) === 'expense');
     const known = new Set(plan.categories.map((c) => c.id));
@@ -1657,7 +1695,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     return {
       version: 2,
       settings: { startDay: 1, myName: '' },
-      plans: [{ from: BASE_PLAN_FROM, ratioBase: 'afterFixed', categories: defaultCategories(), updatedAt: '' }],
+      plans: [{ from: BASE_PLAN_FROM, ratioBase: 'afterFixed', fixedOverflow: 'warn', categories: defaultCategories(), updatedAt: '' }],
       accounts: [],
       incomes: {},
       transactions: [],
@@ -1684,6 +1722,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
       .map((p) => ({
         from: String(p.from || BASE_PLAN_FROM),
         ratioBase: p.ratioBase === 'income' ? 'income' : 'afterFixed',
+        fixedOverflow: p.fixedOverflow === 'scale' ? 'scale' : 'warn',
         categories: Array.isArray(p.categories) ? p.categories : [],
         updatedAt: String(p.updatedAt || ''),
       }))
@@ -2735,10 +2774,32 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     $('#stale-reclassify').addEventListener('click', quiet(() => runReclassify(false)));
   }
 
+  // 고정 항목 합계가 이번 기간 수입보다 클 때 알림
+  function renderFixedBox(sum) {
+    const box = $('#fixed-box');
+    if (!sum.hasIncome || !sum.fixedOver) {
+      box.innerHTML = '';
+      return;
+    }
+    const pct = Math.round(sum.fixedScale * 100);
+    box.innerHTML = `
+      <div class="card note-card warn-card">
+        <b>고정 항목 합계가 수입보다 ${won(sum.fixedOver)} 많아요.</b>
+        <p class="small">고정 항목 ${won(sum.fixedTotal)} · 이번 기간 수입 ${won(sum.income)}.
+        ${sum.fixedScaled
+          ? `계획 설정에 따라 고정 항목 한도를 정한 금액의 약 ${pct}%로 줄여 수입에 맞췄어요.`
+          : '정한 금액 그대로 두었기 때문에 계획이 수입을 넘어요. 고정 금액을 고치거나, 계획에서 <b>비율대로 줄이기</b>를 고를 수 있어요.'}
+        ${sum.ratioPercentTotal > 0 && sum.plan.ratioBase === 'afterFixed' ? ' 고정 항목을 빼고 남는 돈이 없어 비율 항목 한도는 0원이에요.' : ''}</p>
+        <button class="ghost-btn" data-goto="plan">계획 보기</button>
+      </div>`;
+    box.querySelector('[data-goto]').addEventListener('click', () => showPage('plan'));
+  }
+
   function renderHome() {
     const sum = L.summarizePeriod(S(), currentPeriod);
     renderIncomeBox(sum);
     renderStaleBox(sum);
+    renderFixedBox(sum);
 
     const today = L.todayISO();
     const isCurrent = today >= currentPeriod.start && today <= currentPeriod.end;
@@ -3062,6 +3123,14 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
   // ---------- 예산 계획 ----------
 
   // 이 기간의 계획을 고치기 전에 호출: 지난 기간 계획을 물려받고 있었다면 이 기간부터 적용되는 새 계획을 만든다.
+  // 한도 계산 방식만 바꿀 때: 분류와 상관없으니 '다시 분류' 안내가 뜨지 않게 수정 시각을 그대로 둔다
+  function budgetPlan() {
+    const before = currentPlan();
+    const plan = L.ensurePlanFor(S(), currentPeriod.key, nowISO());
+    if (plan !== before) plan.updatedAt = before.updatedAt;
+    return plan;
+  }
+
   function editablePlan() {
     const plan = L.ensurePlanFor(S(), currentPeriod.key, nowISO());
     plan.updatedAt = nowISO();
@@ -3085,6 +3154,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     renderPlanVersion();
     const plan = currentPlan();
     $('#ratio-base').value = plan.ratioBase;
+    $('#fixed-overflow').value = plan.fixedOverflow || 'warn';
 
     const rowsEl = $('#plan-rows');
     rowsEl.innerHTML = `
@@ -3149,13 +3219,17 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     const plan = currentPlan();
     const income = S().incomes[currentPeriod.key];
     const hasIncome = typeof income === 'number';
-    const calc = L.computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase);
+    const calc = L.computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase, plan.fixedOverflow);
 
     $$('.plan-row[data-id]').forEach((row) => {
       const c = plan.categories.find((x) => x.id === row.dataset.id);
       const p = row.querySelector('.preview');
       if (!c) return;
-      if (c.type === 'fixed') p.textContent = '수입과 상관없이 매 기간 같은 한도';
+      if (c.type === 'fixed') {
+        p.textContent = hasIncome && calc.fixedScaled
+          ? `이번 기간 한도 ${won(calc.budgets[c.id])} (수입이 모자라 줄임)`
+          : '수입과 상관없이 매 기간 같은 한도';
+      }
       else p.textContent = hasIncome ? `이번 기간 한도 ${won(calc.budgets[c.id])}` : '당기 수입을 입력하면 한도가 계산됩니다';
     });
 
@@ -3166,7 +3240,11 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     if (hasIncome) {
       lines.push(`이번 기간 수입 ${won(income)} 기준: 배분 ${won(calc.allocated)}` +
         (calc.unallocated >= 0 ? ` · 남는 돈 ${won(calc.unallocated)}` : ` · <span class="warn">${won(-calc.unallocated)} 부족</span>`));
-      if (plan.ratioBase === 'afterFixed' && calc.fixedTotal > income) lines.push('<span class="warn">⚠ 고정 항목 합계가 수입보다 큽니다.</span>');
+      if (calc.fixedOver) {
+        lines.push(calc.fixedScaled
+          ? `<span class="warn">⚠ 고정 항목 합계가 수입보다 ${won(calc.fixedOver)} 많아, 고정 항목 한도를 약 ${Math.round(calc.fixedScale * 100)}%로 줄였습니다.</span>`
+          : `<span class="warn">⚠ 고정 항목 합계가 수입보다 ${won(calc.fixedOver)} 많습니다.</span>`);
+      }
     }
     $('#plan-summary').innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
   }
@@ -3703,7 +3781,13 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
 
     // 예산 계획
     $('#ratio-base').addEventListener('change', (e) => {
-      editablePlan().ratioBase = e.target.value;
+      budgetPlan().ratioBase = e.target.value;
+      store.saveMeta();
+      renderPlanVersion();
+      renderPlanSummary();
+    });
+    $('#fixed-overflow').addEventListener('change', (e) => {
+      budgetPlan().fixedOverflow = e.target.value === 'scale' ? 'scale' : 'warn';
       store.saveMeta();
       renderPlanVersion();
       renderPlanSummary();

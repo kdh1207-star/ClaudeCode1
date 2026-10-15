@@ -82,25 +82,55 @@
    *   ratio → value 는 퍼센트, fixed → value 는 원 단위 금액
    * ratioBase: 'income'     → 비율 항목은 전체 수입 기준
    *            'afterFixed' → 비율 항목은 (수입 - 고정 항목 합계) 기준
+   * fixedOverflow: 고정 항목 합계가 수입보다 클 때
+   *            'warn'  → 정한 금액 그대로 두고 화면에서 알린다 (기본)
+   *            'scale' → 고정 항목끼리의 비율을 유지한 채 합계가 수입과 같아지도록 줄인다
+   * 수입이 0(아직 입력 안 함)이면 줄이지 않는다.
    */
-  function computeBudgets(categories, income, ratioBase) {
+  function computeBudgets(categories, income, ratioBase, fixedOverflow) {
     const inc = Math.max(0, Number(income) || 0);
-    const fixedTotal = categories
-      .filter((c) => c.type === 'fixed')
-      .reduce((s, c) => s + (Number(c.value) || 0), 0);
+    const fixedCats = categories.filter((c) => c.type === 'fixed');
+    const fixedTotal = fixedCats.reduce((s, c) => s + Math.round(Number(c.value) || 0), 0);
     const ratioPercentTotal = categories
       .filter((c) => c.type === 'ratio')
       .reduce((s, c) => s + (Number(c.value) || 0), 0);
-    const base = ratioBase === 'afterFixed' ? Math.max(0, inc - fixedTotal) : inc;
+    const fixedOver = inc > 0 ? Math.max(0, fixedTotal - inc) : 0;
+    const fixedScaled = fixedOverflow === 'scale' && fixedOver > 0;
 
     const budgets = {};
+    for (const c of fixedCats) budgets[c.id] = Math.round(Number(c.value) || 0);
+    if (fixedScaled) {
+      // 비례해서 내림한 뒤, 남은 몇 원은 소수점 아래가 큰 항목부터 1원씩 더해 합계를 수입과 정확히 맞춘다
+      const parts = fixedCats.map((c) => {
+        const exact = (budgets[c.id] * inc) / fixedTotal;
+        return { id: c.id, floor: Math.floor(exact), frac: exact - Math.floor(exact) };
+      });
+      let left = inc - parts.reduce((s, x) => s + x.floor, 0);
+      parts.sort((a, b) => b.frac - a.frac);
+      for (const x of parts) {
+        budgets[x.id] = x.floor + (left > 0 ? 1 : 0);
+        if (left > 0) left -= 1;
+      }
+    }
+    const fixedBudgetTotal = fixedCats.reduce((s, c) => s + budgets[c.id], 0);
+    const base = ratioBase === 'afterFixed' ? Math.max(0, inc - fixedBudgetTotal) : inc;
+
     for (const c of categories) {
-      budgets[c.id] = c.type === 'fixed'
-        ? Math.round(Number(c.value) || 0)
-        : Math.round((base * (Number(c.value) || 0)) / 100);
+      if (c.type !== 'fixed') budgets[c.id] = Math.round((base * (Number(c.value) || 0)) / 100);
     }
     const allocated = Object.values(budgets).reduce((s, v) => s + v, 0);
-    return { budgets, fixedTotal, ratioPercentTotal, ratioBaseAmount: base, allocated, unallocated: inc - allocated };
+    return {
+      budgets,
+      fixedTotal,
+      fixedBudgetTotal,
+      fixedOver,
+      fixedScaled,
+      fixedScale: fixedScaled ? inc / fixedTotal : 1,
+      ratioPercentTotal,
+      ratioBaseAmount: base,
+      allocated,
+      unallocated: inc - allocated,
+    };
   }
 
   // 거래 종류: expense(지출, 기본) / income(입금) / transfer(내 계좌끼리 이체 — 지출·수입에서 제외)
@@ -116,7 +146,7 @@
     const plan = planFor(state, period.key);
     const income = state.incomes[period.key];
     const hasIncome = typeof income === 'number';
-    const calc = computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase);
+    const calc = computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase, plan.fixedOverflow);
     const all = txsInPeriod(state, period);
     const txs = all.filter((t) => kindOf(t) === 'expense');
     const known = new Set(plan.categories.map((c) => c.id));
@@ -890,7 +920,7 @@
     return {
       version: 2,
       settings: { startDay: 1, myName: '' },
-      plans: [{ from: BASE_PLAN_FROM, ratioBase: 'afterFixed', categories: defaultCategories(), updatedAt: '' }],
+      plans: [{ from: BASE_PLAN_FROM, ratioBase: 'afterFixed', fixedOverflow: 'warn', categories: defaultCategories(), updatedAt: '' }],
       accounts: [],
       incomes: {},
       transactions: [],
@@ -917,6 +947,7 @@
       .map((p) => ({
         from: String(p.from || BASE_PLAN_FROM),
         ratioBase: p.ratioBase === 'income' ? 'income' : 'afterFixed',
+        fixedOverflow: p.fixedOverflow === 'scale' ? 'scale' : 'warn',
         categories: Array.isArray(p.categories) ? p.categories : [],
         updatedAt: String(p.updatedAt || ''),
       }))

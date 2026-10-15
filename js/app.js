@@ -382,10 +382,32 @@
     $('#stale-reclassify').addEventListener('click', quiet(() => runReclassify(false)));
   }
 
+  // 고정 항목 합계가 이번 기간 수입보다 클 때 알림
+  function renderFixedBox(sum) {
+    const box = $('#fixed-box');
+    if (!sum.hasIncome || !sum.fixedOver) {
+      box.innerHTML = '';
+      return;
+    }
+    const pct = Math.round(sum.fixedScale * 100);
+    box.innerHTML = `
+      <div class="card note-card warn-card">
+        <b>고정 항목 합계가 수입보다 ${won(sum.fixedOver)} 많아요.</b>
+        <p class="small">고정 항목 ${won(sum.fixedTotal)} · 이번 기간 수입 ${won(sum.income)}.
+        ${sum.fixedScaled
+          ? `계획 설정에 따라 고정 항목 한도를 정한 금액의 약 ${pct}%로 줄여 수입에 맞췄어요.`
+          : '정한 금액 그대로 두었기 때문에 계획이 수입을 넘어요. 고정 금액을 고치거나, 계획에서 <b>비율대로 줄이기</b>를 고를 수 있어요.'}
+        ${sum.ratioPercentTotal > 0 && sum.plan.ratioBase === 'afterFixed' ? ' 고정 항목을 빼고 남는 돈이 없어 비율 항목 한도는 0원이에요.' : ''}</p>
+        <button class="ghost-btn" data-goto="plan">계획 보기</button>
+      </div>`;
+    box.querySelector('[data-goto]').addEventListener('click', () => showPage('plan'));
+  }
+
   function renderHome() {
     const sum = L.summarizePeriod(S(), currentPeriod);
     renderIncomeBox(sum);
     renderStaleBox(sum);
+    renderFixedBox(sum);
 
     const today = L.todayISO();
     const isCurrent = today >= currentPeriod.start && today <= currentPeriod.end;
@@ -709,6 +731,14 @@
   // ---------- 예산 계획 ----------
 
   // 이 기간의 계획을 고치기 전에 호출: 지난 기간 계획을 물려받고 있었다면 이 기간부터 적용되는 새 계획을 만든다.
+  // 한도 계산 방식만 바꿀 때: 분류와 상관없으니 '다시 분류' 안내가 뜨지 않게 수정 시각을 그대로 둔다
+  function budgetPlan() {
+    const before = currentPlan();
+    const plan = L.ensurePlanFor(S(), currentPeriod.key, nowISO());
+    if (plan !== before) plan.updatedAt = before.updatedAt;
+    return plan;
+  }
+
   function editablePlan() {
     const plan = L.ensurePlanFor(S(), currentPeriod.key, nowISO());
     plan.updatedAt = nowISO();
@@ -732,6 +762,7 @@
     renderPlanVersion();
     const plan = currentPlan();
     $('#ratio-base').value = plan.ratioBase;
+    $('#fixed-overflow').value = plan.fixedOverflow || 'warn';
 
     const rowsEl = $('#plan-rows');
     rowsEl.innerHTML = `
@@ -796,13 +827,17 @@
     const plan = currentPlan();
     const income = S().incomes[currentPeriod.key];
     const hasIncome = typeof income === 'number';
-    const calc = L.computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase);
+    const calc = L.computeBudgets(plan.categories, hasIncome ? income : 0, plan.ratioBase, plan.fixedOverflow);
 
     $$('.plan-row[data-id]').forEach((row) => {
       const c = plan.categories.find((x) => x.id === row.dataset.id);
       const p = row.querySelector('.preview');
       if (!c) return;
-      if (c.type === 'fixed') p.textContent = '수입과 상관없이 매 기간 같은 한도';
+      if (c.type === 'fixed') {
+        p.textContent = hasIncome && calc.fixedScaled
+          ? `이번 기간 한도 ${won(calc.budgets[c.id])} (수입이 모자라 줄임)`
+          : '수입과 상관없이 매 기간 같은 한도';
+      }
       else p.textContent = hasIncome ? `이번 기간 한도 ${won(calc.budgets[c.id])}` : '당기 수입을 입력하면 한도가 계산됩니다';
     });
 
@@ -813,7 +848,11 @@
     if (hasIncome) {
       lines.push(`이번 기간 수입 ${won(income)} 기준: 배분 ${won(calc.allocated)}` +
         (calc.unallocated >= 0 ? ` · 남는 돈 ${won(calc.unallocated)}` : ` · <span class="warn">${won(-calc.unallocated)} 부족</span>`));
-      if (plan.ratioBase === 'afterFixed' && calc.fixedTotal > income) lines.push('<span class="warn">⚠ 고정 항목 합계가 수입보다 큽니다.</span>');
+      if (calc.fixedOver) {
+        lines.push(calc.fixedScaled
+          ? `<span class="warn">⚠ 고정 항목 합계가 수입보다 ${won(calc.fixedOver)} 많아, 고정 항목 한도를 약 ${Math.round(calc.fixedScale * 100)}%로 줄였습니다.</span>`
+          : `<span class="warn">⚠ 고정 항목 합계가 수입보다 ${won(calc.fixedOver)} 많습니다.</span>`);
+      }
     }
     $('#plan-summary').innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
   }
@@ -1350,7 +1389,13 @@
 
     // 예산 계획
     $('#ratio-base').addEventListener('change', (e) => {
-      editablePlan().ratioBase = e.target.value;
+      budgetPlan().ratioBase = e.target.value;
+      store.saveMeta();
+      renderPlanVersion();
+      renderPlanSummary();
+    });
+    $('#fixed-overflow').addEventListener('change', (e) => {
+      budgetPlan().fixedOverflow = e.target.value === 'scale' ? 'scale' : 'warn';
       store.saveMeta();
       renderPlanVersion();
       renderPlanSummary();

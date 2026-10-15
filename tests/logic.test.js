@@ -328,3 +328,35 @@ test('중복 찾기: 알림으로 이미 들어온 내역', () => {
   assert.equal(L.findDuplicate({ date: '2026-09-28', amount: 50000, memo: '다른 사람', kind: 'expense' }, txs), null);
   assert.equal(L.findDuplicate({ date: '2026-09-28', amount: 50000, memo: '김철수', kind: 'income' }, txs), null);
 });
+
+test('예산: 고정 항목 합계가 수입보다 크면 알리거나 비율대로 줄인다', () => {
+  const c = [
+    { id: 'rent', name: '월세', type: 'fixed', value: 600000 },
+    { id: 'tel', name: '통신', type: 'fixed', value: 100000 },
+    { id: 'food', name: '식비', type: 'ratio', value: 100 },
+  ];
+  const warn = L.computeBudgets(c, 560000, 'afterFixed', 'warn');
+  assert.equal(warn.fixedOver, 140000);
+  assert.equal(warn.fixedScaled, false);
+  assert.deepEqual(warn.budgets, { rent: 600000, tel: 100000, food: 0 });
+
+  const scale = L.computeBudgets(c, 560000, 'afterFixed', 'scale');
+  assert.equal(scale.fixedScaled, true);
+  assert.deepEqual(scale.budgets, { rent: 480000, tel: 80000, food: 0 });
+  assert.equal(scale.unallocated, 0);
+
+  // 나누어떨어지지 않아도 합계는 수입과 정확히 같다
+  const odd = L.computeBudgets([{ id: 'a', type: 'fixed', value: 100 }, { id: 'b', type: 'fixed', value: 100 }, { id: 'c', type: 'fixed', value: 100 }], 100, 'income', 'scale');
+  assert.equal(odd.budgets.a + odd.budgets.b + odd.budgets.c, 100);
+
+  // 수입이 충분하거나 아직 입력 전이면 줄이지 않는다
+  assert.equal(L.computeBudgets(c, 2000000, 'afterFixed', 'scale').fixedScaled, false);
+  assert.equal(L.computeBudgets(c, 0, 'afterFixed', 'scale').fixedScaled, false);
+  assert.equal(L.computeBudgets(c, 0, 'afterFixed', 'scale').budgets.rent, 600000);
+});
+
+test('계획 버전마다 고정 항목 초과 처리 방식을 저장한다 (예전 데이터는 알림)', () => {
+  const s = L.normalizeState({ plans: [{ from: L.BASE_PLAN_FROM, ratioBase: 'afterFixed', categories: [] }, { from: '2026-10-01', fixedOverflow: 'scale', categories: [] }] });
+  assert.equal(s.plans[0].fixedOverflow, 'warn');
+  assert.equal(s.plans[1].fixedOverflow, 'scale');
+});

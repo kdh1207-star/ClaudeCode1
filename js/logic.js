@@ -418,7 +418,7 @@
     return null;
   }
 
-  // 다른 계좌의 내역인데 사용처가 페이 이름이면 '내 계좌 이동'(충전·환급)으로 바꾼다. 바꿨으면 true
+  // 다른 계좌의 내역인데 사용처가 페이 이름이면 '내 계좌 이체'(충전·환급)으로 바꾼다. 바꿨으면 true
   function applyPayRules(item, accounts) {
     if (kindOf(item) === 'transfer') return false;
     const acc = payAccountForMemo(item.memo, accounts);
@@ -863,7 +863,7 @@
         amount = -amount;
       }
       if (opts.myName && memo.includes(opts.myName) && !/카드|결제|승인/.test(allText)) kind = 'transfer';
-      // 페이 결제내역 파일: 은행에서 채워 넣은 충전은 지출·수입이 아니라 내 계좌 이동
+      // 페이 결제내역 파일: 은행에서 채워 넣은 충전은 지출·수입이 아니라 내 계좌 이체
       if (opts.payAccount && /충전/.test(allText) && !/취소|환불/.test(allText)) kind = 'transfer';
 
       const balance = parseAmountCell(get(row, 'balance'));

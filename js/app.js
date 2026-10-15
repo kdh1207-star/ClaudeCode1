@@ -439,7 +439,7 @@
     box.innerHTML = doubles.map((d, i) => `
       <div class="card note-card warn-card">
         <b>${esc(d.payName)} 출금 ${d.txs.length}건${d.total ? `(${won(d.total)})` : ''}이 결제내역과 이중으로 계산되고 있어요.</b>
-        <p class="small">은행에서 ${esc(d.payName)}(으)로 빠져나간 돈은 페이 머니 충전이고, 실제 지출은 ${esc(d.payName)} 결제내역으로 이미 세고 있어요. 충전 쪽을 '내 계좌 이동'으로 바꾸면 중복이 없어집니다.${d.needsType ? ` ('${esc(d.account.name)}'의 종류도 간편결제 머니로 바꿉니다)` : ''}</p>
+        <p class="small">은행에서 ${esc(d.payName)}(으)로 빠져나간 돈은 페이 머니 충전이고, 실제 지출은 ${esc(d.payName)} 결제내역으로 이미 세고 있어요. 충전 쪽을 '내 계좌 이체'으로 바꾸면 중복이 없어집니다.${d.needsType ? ` ('${esc(d.account.name)}'의 종류도 간편결제 머니로 바꿉니다)` : ''}</p>
         <button class="primary-btn" data-fix="${i}">충전으로 바꿔서 중복 없애기</button>
       </div>`).join('') + missing.map((f) => `
       <div class="card note-card warn-card">
@@ -457,7 +457,7 @@
       await busy(`정리하는 중… (${d.txs.length}건)`, async () => {
         for (const t of d.txs) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
       });
-      toast(`${d.txs.length}건을 충전(내 계좌 이동)으로 바꿨어요. 이제 지출은 결제내역으로만 셉니다.`);
+      toast(`${d.txs.length}건을 충전(내 계좌 이체)으로 바꿨어요. 이제 지출은 결제내역으로만 셉니다.`);
       render();
     })));
   }
@@ -711,7 +711,7 @@
           ${raw ? `<div class="sort-raw">${esc(raw)}</div>` : ''}
           <div class="pick-row">
             ${cats.map((c, i) => `<button class="pick-btn" data-cat="${esc(c.id)}"><span class="dot" style="background:${C.seriesColor(i)}"></span>${esc(c.name)}</button>`).join('')}
-            <button class="pick-btn other" data-kind="transfer">내 계좌 이동</button>
+            <button class="pick-btn other" data-kind="transfer">내 계좌 이체</button>
             <button class="pick-btn other" data-kind="income">입금</button>
           </div>
           ${g.items.length > 1 ? `<details><summary>하나씩 따로 고르기</summary><div class="tx-list">${g.items.map((t) => txRow(t)).join('')}</div></details>` : ''}
@@ -744,7 +744,7 @@
         }
       }
     });
-    const what = kind === 'transfer' ? '내 계좌 이동' : kind === 'income' ? '입금' : categoryInfo(categoryId, planForTx(g.items[0]).categories).name;
+    const what = kind === 'transfer' ? '내 계좌 이체' : kind === 'income' ? '입금' : categoryInfo(categoryId, planForTx(g.items[0]).categories).name;
     const skipped = g.items.length - done;
     toast(`'${g.memo}' ${done}건을 ${what}(으)로 정리했어요.` +
       (skipped ? ` (${skipped}건은 그때 계획에 이 항목이 없어 남겨 뒀어요)` : '') +
@@ -1349,7 +1349,7 @@
       if (apply) apply.addEventListener('click', quiet(async () => {
         const targets = S().transactions.filter((t) => L.applyPayRules({ ...t }, [a]));
         if (!targets.length) return toast(`'${a.payName}'(으)로 찍힌 지출·입금이 없어요.`);
-        if (!confirm(`'${a.payName}'(으)로 찍힌 내역 ${targets.length}건을 충전(내 계좌 이동)으로 바꿀까요? 지출에서 빠집니다.`)) return;
+        if (!confirm(`'${a.payName}'(으)로 찍힌 내역 ${targets.length}건을 충전(내 계좌 이체)으로 바꿀까요? 지출에서 빠집니다.`)) return;
         await busy(`정리하는 중… (${targets.length}건)`, async () => {
           for (const t of targets) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
         });

@@ -157,7 +157,7 @@ function receiveMessage_(text, source) {
       if (acc) parsed.accountId = acc.id;
     }
 
-    // 페이 앱 알림(source=pay)은 그 페이 머니에서 쓴 것. 충전 알림은 내 계좌 이동
+    // 페이 앱 알림(source=pay)은 그 페이 머니에서 쓴 것. 충전 알림은 내 계좌 이체
     var payAcc = meta.accounts.filter(function (a) { return a.type === 'pay'; })[0];
     if (source === 'pay' && payAcc) {
       if (!parsed.accountId) parsed.accountId = payAcc.id;
@@ -166,7 +166,7 @@ function receiveMessage_(text, source) {
         parsed.categoryId = null;
       }
     }
-    // 은행 문자에 '카카오페이' 등으로 찍힌 출금은 페이 머니 충전 → 지출이 아니라 내 계좌 이동
+    // 은행 문자에 '카카오페이' 등으로 찍힌 출금은 페이 머니 충전 → 지출이 아니라 내 계좌 이체
     if (BL.applyPayRules(parsed, meta.accounts)) method = null;
 
     // 지출이면: 사용자가 직접 분류해 둔 가맹점을 우선하고, AI 결과가 없으면 키워드로

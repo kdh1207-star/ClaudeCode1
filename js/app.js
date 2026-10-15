@@ -1306,7 +1306,7 @@
     if (!sd.options.length) sd.innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">매월 ${i + 1}일</option>`).join('');
     sd.value = String(S().settings.startDay);
     $('#my-name').value = S().settings.myName || '';
-    $('#theme-select').value = S().settings.theme || 'y2k';
+    $('#theme-select').value = S().settings.theme || 'basic';
     renderAccountRows();
     renderRules();
     renderAutoCard();
@@ -1668,7 +1668,7 @@
     // 설정
     $('#start-day').addEventListener('change', (e) => changeStartDay(Number(e.target.value)));
     $('#theme-select').addEventListener('change', (e) => {
-      S().settings.theme = ['cyber', 'terminal'].includes(e.target.value) ? e.target.value : 'y2k';
+      S().settings.theme = THEMES.includes(e.target.value) ? e.target.value : 'basic';
       store.saveMeta();
       applyTheme();
     });
@@ -1741,11 +1741,15 @@
     });
   }
 
+  const THEMES = ['basic', 'y2k', 'cyber', 'terminal'];
+
   // 테마: <html data-skin> 로 겉모습을 바꾸고, 다음에 열 때 깜빡이지 않게 이 기기에도 기억한다
   function applyTheme() {
-    const t = ['cyber', 'terminal'].includes(S().settings.theme) ? S().settings.theme : 'y2k';
-    if (document.documentElement.getAttribute('data-skin') === t) return;
-    document.documentElement.setAttribute('data-skin', t);
+    const t = THEMES.includes(S().settings.theme) ? S().settings.theme : 'basic';
+    const root = document.documentElement;
+    if ((root.getAttribute('data-skin') || 'basic') === t && document.getElementById('backdrop')) return;
+    if (t === 'basic') root.removeAttribute('data-skin');
+    else root.setAttribute('data-skin', t);
     try {
       localStorage.setItem('budget-theme', t);
     } catch (e) {
@@ -1779,7 +1783,8 @@
     let seed = 20261015;
     const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
     const area = (w * h) / (390 * 844);
-    if (document.documentElement.getAttribute('data-skin') === 'terminal') return; // 터미널은 깨끗한 화면
+    const skin = document.documentElement.getAttribute('data-skin');
+    if (!skin || skin === 'terminal') return; // 기본·터미널은 깨끗한 화면
     if (document.documentElement.getAttribute('data-skin') === 'cyber') {
       // 작은 + 표식, 모서리 괄호, 짧은 데이터 막대
       const cols = ['0, 240, 255', '252, 238, 10', '255, 31, 75'];

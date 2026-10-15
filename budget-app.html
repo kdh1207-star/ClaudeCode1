@@ -8,56 +8,91 @@
   <link href="https://fonts.gstatic.com" rel="preconnect" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Do+Hyeon&family=Gothic+A1:wght@700;800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@400;500;700&family=Nanum+Gothic+Coding:wght@400;700&family=Share+Tech+Mono&family=Unbounded:wght@600;700;800;900&display=swap" rel="stylesheet">
   <style>
-/* Y2K 크롬: 깊은 남색 우주 위 리퀴드 크롬, 홀로그램(시안→라일락→핑크), 넓고 둥근 미래형 글꼴,
-   광택 알약 버튼, 둥근 유리 패널, 원근 그리드 바닥. 일부러 한 가지 모습(어두운 화면)으로 고정한다. */
+/* 기본 테마: 차분한 밝은/어두운 화면 (기기 설정을 따른다). 다른 테마는 <html data-skin="..."> 로 덮어쓴다. */
 :root {
+  color-scheme: light;
+  --page: #f4f4f1;
+  --surface: #fcfcfb;
+  --surface-2: #f0efec;
+  --surface-3: #e7e6e1;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #6f6d68;
+  --border: rgba(11, 11, 11, 0.09);
+  --accent: #2a78d6;
+  --accent-track: #cde2fb;
+  --accent-soft: #e6f0fc;
+  --accent-text: #1c5cab;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --warning-track: #fde8b8;
+  --critical: #d03b3b;
+  --critical-track: #f6d0d0;
+  --critical-text: #b42f2f;
+  --gray-mark: #b8b6ae;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --sidebar-w: 232px;
+  --font-display: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-caps: var(--font-display);
+  --font-ko-display: var(--font-display);
+  --font-body: var(--font-display);
+  --font-mono: var(--font-display);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #232321;
+    --surface-3: #2e2e2b;
+    --text: #ffffff;
+    --text-2: #c3c2b7;
+    --muted: #9a988f;
+    --border: rgba(255, 255, 255, 0.09);
+    --accent: #3987e5;
+    --accent-track: #1c3558;
+    --accent-soft: #16263b;
+    --accent-text: #86b6ef;
+    --good-text: #0ca30c;
+    --warning-track: #4a3a12;
+    --critical-track: #4a1f1f;
+    --critical-text: #ec7070;
+    --gray-mark: #5c5b56;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
   color-scheme: dark;
-  --page: #05061a;
-  --surface: #0d1030;
-  --surface-2: #151a42;
-  --surface-3: #20265a;
-  --text: #f1f4ff;
-  --text-2: #b7bfe6;
-  --muted: #7d86b8;
-  --ink: #f1f4ff;
-  --paper: #05061a;
-  --border: rgba(190, 205, 255, 0.16);
-  --edge: rgba(210, 222, 255, 0.34);
-  --accent: #9fe8ff;
-  --accent-track: #1a2050;
-  --accent-soft: #141a45;
-  --accent-text: #a8ecff;
-  --ice: #8fe3ff;
-  --lilac: #c9a8ff;
-  --pink: #ff9ee0;
-  --hot: #ff6fb5;
-  --hot-soft: #3a1240;
-  --hi: #ffffff;
-  --good: #7ff5d0;
-  --good-text: #8af7d6;
-  --warning: #ffd36b;
-  --warning-track: #3a3014;
-  --critical: #ff5f9e;
-  --critical-track: #3a1030;
-  --critical-text: #ff8ab8;
-  --gray-mark: #4a5285;
-  --s1: #8fe3ff; --s2: #ff9ee0; --s3: #c9a8ff; --s4: #7ff5d0; --s5: #ffd36b; --s6: #6f9dff; --s7: #e4e8ff;
-  --chrome: linear-gradient(180deg, #ffffff 0%, #d8f3ff 16%, #8fc2ef 34%, #1d2a5c 47%, #0a1030 50%, #b9c4e6 56%, #ffffff 68%, #c7cfe8 84%, #f3f6ff 100%);
-  --holo: linear-gradient(100deg, #8fe3ff 0%, #c9a8ff 35%, #ff9ee0 62%, #ffe3a8 82%, #8fe3ff 100%);
-  --gloss: linear-gradient(180deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, .12) 48%, rgba(255, 255, 255, 0) 52%);
-  --pill: linear-gradient(180deg, #ffffff 0%, #dfe7ff 30%, #9fb0e6 52%, #c9d5ff 78%, #f4f7ff 100%);
-  --shadow: 0 0 0 1px var(--edge), 0 20px 50px -24px rgba(0, 0, 0, .9);
-  --sidebar-w: 244px;
-  --font-display: "Unbounded", "Gothic A1", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  --font-caps: "Unbounded", "Gothic A1", sans-serif;
-  --font-ko-display: "Gothic A1", "Unbounded", "Apple SD Gothic Neo", sans-serif;
-  --font-body: "IBM Plex Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  --font-mono: "Unbounded", "IBM Plex Sans KR", sans-serif;
-  --font-hand: "Unbounded", sans-serif;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232321;
+  --surface-3: #2e2e2b;
+  --text: #ffffff;
+  --text-2: #c3c2b7;
+  --muted: #9a988f;
+  --border: rgba(255, 255, 255, 0.09);
+  --accent: #3987e5;
+  --accent-track: #1c3558;
+  --accent-soft: #16263b;
+  --accent-text: #86b6ef;
+  --good-text: #0ca30c;
+  --warning-track: #4a3a12;
+  --critical-track: #4a1f1f;
+  --critical-text: #ec7070;
+  --gray-mark: #5c5b56;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9;
+  --shadow: none;
 }
 
 * { box-sizing: border-box; }
+
+* { box-sizing: border-box; }
 [hidden] { display: none !important; }
+html, body { max-width: 100%; overflow-x: clip; }
 
 body {
   margin: 0;
@@ -463,10 +498,54 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
 .paste-acct { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin: 6px 0 10px; max-width: 320px; }
 
 /* =====================================================================
-   Y2K CHROME (기본 테마) — :root 의 data-skin 이 없거나 y2k 일 때
+   Y2K CHROME — data-skin="y2k"
    ===================================================================== */
 @keyframes busyY2k { from { background-position: 0 0; } to { background-position: 200% 0; } }
-:root:not([data-skin="cyber"]):not([data-skin="terminal"]) {
+:root[data-skin="y2k"] {
+  color-scheme: dark;
+  --page: #05061a;
+  --surface: #0d1030;
+  --surface-2: #151a42;
+  --surface-3: #20265a;
+  --text: #f1f4ff;
+  --text-2: #b7bfe6;
+  --muted: #7d86b8;
+  --ink: #f1f4ff;
+  --paper: #05061a;
+  --border: rgba(190, 205, 255, 0.16);
+  --edge: rgba(210, 222, 255, 0.34);
+  --accent: #9fe8ff;
+  --accent-track: #1a2050;
+  --accent-soft: #141a45;
+  --accent-text: #a8ecff;
+  --ice: #8fe3ff;
+  --lilac: #c9a8ff;
+  --pink: #ff9ee0;
+  --hot: #ff6fb5;
+  --hot-soft: #3a1240;
+  --hi: #ffffff;
+  --good: #7ff5d0;
+  --good-text: #8af7d6;
+  --warning: #ffd36b;
+  --warning-track: #3a3014;
+  --critical: #ff5f9e;
+  --critical-track: #3a1030;
+  --critical-text: #ff8ab8;
+  --gray-mark: #4a5285;
+  --s1: #8fe3ff; --s2: #ff9ee0; --s3: #c9a8ff; --s4: #7ff5d0; --s5: #ffd36b; --s6: #6f9dff; --s7: #e4e8ff;
+  --chrome: linear-gradient(180deg, #ffffff 0%, #d8f3ff 16%, #8fc2ef 34%, #1d2a5c 47%, #0a1030 50%, #b9c4e6 56%, #ffffff 68%, #c7cfe8 84%, #f3f6ff 100%);
+  --holo: linear-gradient(100deg, #8fe3ff 0%, #c9a8ff 35%, #ff9ee0 62%, #ffe3a8 82%, #8fe3ff 100%);
+  --gloss: linear-gradient(180deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, .12) 48%, rgba(255, 255, 255, 0) 52%);
+  --pill: linear-gradient(180deg, #ffffff 0%, #dfe7ff 30%, #9fb0e6 52%, #c9d5ff 78%, #f4f7ff 100%);
+  --shadow: 0 0 0 1px var(--edge), 0 20px 50px -24px rgba(0, 0, 0, .9);
+  --sidebar-w: 244px;
+  --font-display: "Unbounded", "Gothic A1", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-caps: "Unbounded", "Gothic A1", sans-serif;
+  --font-ko-display: "Gothic A1", "Unbounded", "Apple SD Gothic Neo", sans-serif;
+  --font-body: "IBM Plex Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-mono: "Unbounded", "IBM Plex Sans KR", sans-serif;
+  --font-hand: "Unbounded", sans-serif;
+
 body {
   background-color: var(--page);
   background-image:
@@ -474,10 +553,33 @@ body {
     radial-gradient(ellipse 50% 35% at 100% 30%, rgba(255, 120, 210, .16), transparent 70%),
     radial-gradient(ellipse 50% 35% at 0% 60%, rgba(110, 230, 255, .14), transparent 70%);
   background-attachment: fixed;
+  .hint-toggle { border-color: var(--edge); background: var(--gloss), rgba(143, 227, 255, .1); color: var(--ice); }
+  .hint-toggle[aria-expanded="true"] { background: var(--gloss), var(--holo); color: #10123a; }
+
+  /* 애니메이션: 화면은 흐릿하게 떠오르고, 메뉴는 통통 튀며 들어온다 */
+  .page.active { animation: y2kIn .5s cubic-bezier(.2, .8, .2, 1) backwards; }
+  .topbar h1.typing { animation: y2kTitle .6s cubic-bezier(.2, .8, .2, 1) backwards; }
+  @media (max-width: 900px) {
+    .sidebar { transition: transform .5s cubic-bezier(.25, 1.35, .45, 1); }
+    .scrim { background: rgba(5, 6, 26, .45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: y2kFade .3s ease backwards; }
+    .sidebar.open .nav > * { animation: y2kItem .45s cubic-bezier(.2, .8, .2, 1) backwards; }
+    .sidebar.open .nav > *:nth-child(1) { animation-delay: 0.12s; }
+    .sidebar.open .nav > *:nth-child(2) { animation-delay: 0.15s; }
+    .sidebar.open .nav > *:nth-child(3) { animation-delay: 0.19s; }
+    .sidebar.open .nav > *:nth-child(4) { animation-delay: 0.23s; }
+    .sidebar.open .nav > *:nth-child(5) { animation-delay: 0.26s; }
+    .sidebar.open .nav > *:nth-child(6) { animation-delay: 0.30s; }
+    .sidebar.open .nav > *:nth-child(7) { animation-delay: 0.33s; }
+    .sidebar.open .nav > *:nth-child(8) { animation-delay: 0.36s; }
+    .sidebar.open .nav > *:nth-child(9) { animation-delay: 0.40s; }
+    .sidebar.open .nav > *:nth-child(10) { animation-delay: 0.44s; }
+    .sidebar.open .nav > *:nth-child(11) { animation-delay: 0.47s; }
+    .sidebar.open .nav > *:nth-child(12) { animation-delay: 0.51s; }
+  }
 }
 /* 원근 그리드 바닥 */
 body::before {
-  content: ""; position: fixed; left: -50%; right: -50%; bottom: -10vh; height: 55vh; z-index: 0; pointer-events: none;
+  content: ""; position: fixed; left: 0; right: 0; bottom: -10vh; height: 55vh; z-index: 0; pointer-events: none;
   background-image:
     linear-gradient(rgba(150, 190, 255, .35) 1px, transparent 1px),
     linear-gradient(90deg, rgba(150, 190, 255, .35) 1px, transparent 1px);
@@ -883,6 +985,30 @@ th { font-family: var(--font-caps); font-size: 10px; letter-spacing: .1em; color
   /* ⓘ */
   .hint-toggle { border-radius: 0; background: transparent; border: 1px solid var(--edge); color: var(--cyan); font-family: var(--font-mono); }
   .hint-toggle[aria-expanded="true"] { background: var(--yellow); color: #050607; border-color: var(--yellow); }
+
+  /* 애니메이션: 화면이 지지직 깨지며 들어오고, 메뉴는 스캔 바가 훑으며 항목을 그린다 */
+  .page.active { animation: cyberGlitch .42s linear backwards; }
+  .topbar h1.typing { animation: cyberTitle .5s steps(1) backwards; }
+  @media (max-width: 900px) {
+    .sidebar { transition: transform .22s cubic-bezier(.7, 0, .3, 1); }
+    .sidebar.open::after {
+      content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--cyan);
+      box-shadow: 0 0 12px var(--cyan), 0 0 30px var(--cyan); animation: cyberScan .55s ease-in .15s both; pointer-events: none;
+    }
+    .sidebar.open .nav > * { animation: cyberWipe .22s ease-out backwards; }
+    .sidebar.open .nav > *:nth-child(1) { animation-delay: 0.18s; }
+    .sidebar.open .nav > *:nth-child(2) { animation-delay: 0.22s; }
+    .sidebar.open .nav > *:nth-child(3) { animation-delay: 0.26s; }
+    .sidebar.open .nav > *:nth-child(4) { animation-delay: 0.30s; }
+    .sidebar.open .nav > *:nth-child(5) { animation-delay: 0.34s; }
+    .sidebar.open .nav > *:nth-child(6) { animation-delay: 0.38s; }
+    .sidebar.open .nav > *:nth-child(7) { animation-delay: 0.42s; }
+    .sidebar.open .nav > *:nth-child(8) { animation-delay: 0.46s; }
+    .sidebar.open .nav > *:nth-child(9) { animation-delay: 0.50s; }
+    .sidebar.open .nav > *:nth-child(10) { animation-delay: 0.54s; }
+    .sidebar.open .nav > *:nth-child(11) { animation-delay: 0.58s; }
+    .sidebar.open .nav > *:nth-child(12) { animation-delay: 0.62s; }
+  }
 }
 @keyframes busyCyber { from { background-position: 0 0; } to { background-position: 18px 0; } }
 
@@ -1102,32 +1228,51 @@ th { font-family: var(--font-caps); font-size: 10px; letter-spacing: .1em; color
   .page.active { animation: termPrint .42s steps(10, end) backwards; }
   .topbar h1.typing { animation: termType .5s steps(18, end) backwards; }
   @media (max-width: 900px) {
-    /* 메뉴: 툭툭 끊기며 들어오고, 항목은 한 줄씩 켜진다 */
-    .sidebar { transition: transform .24s steps(6, end); }
-    .sidebar.open .brand, .sidebar.open .nav > *, .sidebar.open .sidebar-foot { animation: termLineIn .01s steps(1) backwards; }
-    .sidebar.open .brand { animation-delay: .22s; }
-    .sidebar.open .nav > :nth-child(1) { animation-delay: .28s; }
-    .sidebar.open .nav > :nth-child(2) { animation-delay: .33s; }
-    .sidebar.open .nav > :nth-child(3) { animation-delay: .38s; }
-    .sidebar.open .nav > :nth-child(4) { animation-delay: .43s; }
-    .sidebar.open .nav > :nth-child(5) { animation-delay: .48s; }
-    .sidebar.open .nav > :nth-child(6) { animation-delay: .53s; }
-    .sidebar.open .nav > :nth-child(7) { animation-delay: .58s; }
-    .sidebar.open .nav > :nth-child(8) { animation-delay: .63s; }
-    .sidebar.open .nav > :nth-child(9) { animation-delay: .68s; }
-    .sidebar.open .nav > :nth-child(10) { animation-delay: .73s; }
-    .sidebar.open .sidebar-foot { animation-delay: .8s; }
+    /* 메뉴: 빠르게 들어온 뒤, 브라운관이 켜지듯 가는 빛줄기에서 화면이 펼쳐진다 */
+    .sidebar { transition: transform .16s ease-out; }
+    .sidebar.open > * { animation: termCrtOn .42s cubic-bezier(.2, .9, .3, 1) .08s backwards; transform-origin: 50% 40%; }
+    .sidebar.open::after {
+      content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--amber);
+      box-shadow: 0 0 10px var(--amber), 0 0 24px var(--amber); pointer-events: none; animation: termBeam .5s ease-in .1s both;
+    }
     .scrim { background: repeating-linear-gradient(180deg, rgba(0, 0, 0, .55) 0 2px, rgba(0, 0, 0, .75) 2px 4px); }
   }
 
   .hint-toggle { border-radius: 2px; background: transparent; border: 1px solid var(--edge); color: var(--amber); font-family: var(--font-mono); text-shadow: none; }
   .hint-toggle[aria-expanded="true"] { background: var(--amber); color: #11100d; }
 }
+@keyframes basicIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes y2kIn { from { opacity: 0; transform: translateY(12px) scale(.98); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes y2kTitle { from { opacity: 0; letter-spacing: .25em; filter: blur(4px); } to { opacity: 1; letter-spacing: -0.01em; filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .9)) drop-shadow(0 0 14px rgba(150, 200, 255, .45)); } }
+@keyframes y2kItem { from { opacity: 0; transform: translateX(-22px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes y2kFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cyberGlitch {
+  0% { opacity: 0; transform: translateX(-10px); clip-path: inset(0 0 100% 0); }
+  12% { opacity: 1; transform: translateX(8px); clip-path: inset(12% 0 58% 0); }
+  24% { transform: translateX(-6px); clip-path: inset(48% 0 22% 0); }
+  36% { transform: translateX(4px); clip-path: inset(0 0 74% 0); }
+  50% { transform: translateX(-3px); clip-path: inset(26% 0 30% 0); }
+  64% { transform: translateX(2px); clip-path: inset(0 0 8% 0); }
+  80% { transform: translateX(-1px); clip-path: inset(0); }
+  100% { opacity: 1; transform: none; clip-path: inset(0); }
+}
+@keyframes cyberTitle {
+  0% { opacity: 0; } 15% { opacity: 1; transform: translateX(4px); text-shadow: -4px 0 var(--red), 4px 0 var(--cyan); }
+  35% { transform: translateX(-3px); text-shadow: 3px 0 var(--red), -3px 0 var(--cyan); }
+  60% { transform: translateX(1px); } 100% { transform: none; }
+}
+@keyframes cyberScan { from { top: 0; opacity: 1; } to { top: 100%; opacity: 0; } }
+@keyframes cyberWipe { from { clip-path: inset(0 100% 0 0); opacity: .4; } to { clip-path: inset(0); opacity: 1; } }
+@keyframes termCrtOn { 0% { transform: scale(1, .01); filter: brightness(4); opacity: .9; } 45% { transform: scale(1, .01); filter: brightness(3); } 100% { transform: none; filter: none; opacity: 1; } }
+@keyframes termBeam { 0% { top: 40%; opacity: 1; } 40% { top: 40%; opacity: 1; } 100% { top: 100%; opacity: 0; } }
 @keyframes termBlink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 @keyframes termPrint { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
 @keyframes termType { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
-@keyframes termLineIn { from { visibility: hidden; } to { visibility: visible; } }
 @keyframes termFlicker { 0%, 96%, 100% { opacity: 1; } 97% { opacity: .75; } 98% { opacity: .95; } 99% { opacity: .8; } }
+
+/* 기본 테마 애니메이션: 조용히 살짝 떠오르기 */
+:root:not([data-skin]) .page.active { animation: basicIn .22s ease-out backwards; }
+@media (max-width: 900px) { :root:not([data-skin]) .sidebar { transition: transform .26s cubic-bezier(.2, .8, .2, 1); } }
 
 /* 배경 반짝임 (canvas, js/app.js drawBackdrop) */
 #backdrop { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
@@ -1136,10 +1281,10 @@ th { font-family: var(--font-caps); font-size: 10px; letter-spacing: .1em; color
 /* 설명 문구 접기 (ⓘ) */
 .hint-toggle {
   display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 8px; vertical-align: middle;
-  border: 1px solid var(--edge); border-radius: 50%; background: var(--gloss), rgba(143, 227, 255, .1); color: var(--ice);
-  font-family: var(--font-caps); font-size: 10px; font-weight: 700; cursor: pointer; padding: 0;
+  border: 1px solid var(--border); border-radius: 50%; background: transparent; color: var(--text-2);
+  font-size: 11px; font-weight: 700; cursor: pointer; padding: 0;
 }
-.hint-toggle[aria-expanded="true"] { background: var(--gloss), var(--holo); color: #10123a; }
+.hint-toggle[aria-expanded="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
 p.hint-collapsed { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1148,7 +1293,7 @@ p.hint-collapsed { display: none; }
 </style>
 </head>
 <body>
-  <script>try { var t = localStorage.getItem("budget-theme"); if (t) document.documentElement.setAttribute("data-skin", t); } catch (e) {}</script>
+  <script>try { var t = localStorage.getItem("budget-theme"); if (t && t !== "basic") document.documentElement.setAttribute("data-skin", t); } catch (e) {}</script>
   <noscript>
     <div style="padding:16px;margin:12px;border-radius:12px;background:#fde8b8;color:#0b0b0b;font:15px/1.5 sans-serif">
       이 화면에서는 앱의 기능(자바스크립트)이 실행되지 않아요. 파일 앱의 <b>미리보기</b>가 아니라 <b>크롬·삼성 인터넷·사파리</b> 같은 브라우저로 열어 주세요.
@@ -1440,6 +1585,7 @@ p.hint-collapsed { display: none; }
                   </label>
                   <label>테마
                     <select id="theme-select">
+                      <option value="basic">기본</option>
                       <option value="y2k">Y2K 크롬</option>
                       <option value="cyber">사이버펑크</option>
                       <option value="terminal">레트로 터미널</option>
@@ -1471,7 +1617,7 @@ p.hint-collapsed { display: none; }
               <div class="card" id="set-data">
                 <h2 data-kicker="DATA">데이터</h2>
                 <p id="data-note" class="muted small"></p>
-                <p class="muted small">앱 버전 <code id="build-id">25d7ea1</code></p>
+                <p class="muted small">앱 버전 <code id="build-id">64170b7</code></p>
                 <div class="row-actions">
                   <button id="export-btn" class="ghost-btn">백업 내보내기(JSON)</button>
                   <label class="ghost-btn file-btn">백업 불러오기<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -1641,6 +1787,8 @@ p.hint-collapsed { display: none; }
 
   // 내역이 계산되는 기간. 실제 날짜는 그대로 두고 periodShift(+1 다음 기간, -1 이전 기간)만큼 옮길 수 있다.
   // (월급이 시작일 하루 전에 들어온 경우 등. 시작일을 바꿔도 몇 기간 옮겼는지만 저장하니 어긋나지 않는다)
+  const THEMES = ['basic', 'y2k', 'cyber', 'terminal'];
+
   function txPeriod(t, startDay) {
     const p = getPeriod(t.date, startDay);
     const n = Math.trunc(Number(t.periodShift) || 0);
@@ -2593,7 +2741,7 @@ p.hint-collapsed { display: none; }
 
     return {
       version: 2,
-      settings: { startDay, myName: String(settings.myName || ''), theme: ['cyber', 'terminal'].includes(settings.theme) ? settings.theme : 'y2k' },
+      settings: { startDay, myName: String(settings.myName || ''), theme: THEMES.includes(settings.theme) ? settings.theme : 'basic' },
       plans,
       accounts,
       incomes: raw.incomes && typeof raw.incomes === 'object' ? raw.incomes : {},
@@ -4569,7 +4717,7 @@ p.hint-collapsed { display: none; }
     if (!sd.options.length) sd.innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">매월 ${i + 1}일</option>`).join('');
     sd.value = String(S().settings.startDay);
     $('#my-name').value = S().settings.myName || '';
-    $('#theme-select').value = S().settings.theme || 'y2k';
+    $('#theme-select').value = S().settings.theme || 'basic';
     renderAccountRows();
     renderRules();
     renderAutoCard();
@@ -4931,7 +5079,7 @@ p.hint-collapsed { display: none; }
     // 설정
     $('#start-day').addEventListener('change', (e) => changeStartDay(Number(e.target.value)));
     $('#theme-select').addEventListener('change', (e) => {
-      S().settings.theme = ['cyber', 'terminal'].includes(e.target.value) ? e.target.value : 'y2k';
+      S().settings.theme = THEMES.includes(e.target.value) ? e.target.value : 'basic';
       store.saveMeta();
       applyTheme();
     });
@@ -5004,11 +5152,15 @@ p.hint-collapsed { display: none; }
     });
   }
 
+  const THEMES = ['basic', 'y2k', 'cyber', 'terminal'];
+
   // 테마: <html data-skin> 로 겉모습을 바꾸고, 다음에 열 때 깜빡이지 않게 이 기기에도 기억한다
   function applyTheme() {
-    const t = ['cyber', 'terminal'].includes(S().settings.theme) ? S().settings.theme : 'y2k';
-    if (document.documentElement.getAttribute('data-skin') === t) return;
-    document.documentElement.setAttribute('data-skin', t);
+    const t = THEMES.includes(S().settings.theme) ? S().settings.theme : 'basic';
+    const root = document.documentElement;
+    if ((root.getAttribute('data-skin') || 'basic') === t && document.getElementById('backdrop')) return;
+    if (t === 'basic') root.removeAttribute('data-skin');
+    else root.setAttribute('data-skin', t);
     try {
       localStorage.setItem('budget-theme', t);
     } catch (e) {
@@ -5042,7 +5194,8 @@ p.hint-collapsed { display: none; }
     let seed = 20261015;
     const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
     const area = (w * h) / (390 * 844);
-    if (document.documentElement.getAttribute('data-skin') === 'terminal') return; // 터미널은 깨끗한 화면
+    const skin = document.documentElement.getAttribute('data-skin');
+    if (!skin || skin === 'terminal') return; // 기본·터미널은 깨끗한 화면
     if (document.documentElement.getAttribute('data-skin') === 'cyber') {
       // 작은 + 표식, 모서리 괄호, 짧은 데이터 막대
       const cols = ['0, 240, 255', '252, 238, 10', '255, 31, 75'];

@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <script>try { var t = localStorage.getItem("budget-theme"); if (t) document.documentElement.setAttribute("data-skin", t); } catch (e) {}</script>
+  <script>try { var t = localStorage.getItem("budget-theme"); if (t && t !== "basic") document.documentElement.setAttribute("data-skin", t); } catch (e) {}</script>
   <noscript>
     <div style="padding:16px;margin:12px;border-radius:12px;background:#fde8b8;color:#0b0b0b;font:15px/1.5 sans-serif">
       이 화면에서는 앱의 기능(자바스크립트)이 실행되지 않아요. 파일 앱의 <b>미리보기</b>가 아니라 <b>크롬·삼성 인터넷·사파리</b> 같은 브라우저로 열어 주세요.
@@ -302,6 +302,7 @@
                   </label>
                   <label>테마
                     <select id="theme-select">
+                      <option value="basic">기본</option>
                       <option value="y2k">Y2K 크롬</option>
                       <option value="cyber">사이버펑크</option>
                       <option value="terminal">레트로 터미널</option>

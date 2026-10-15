@@ -140,6 +140,8 @@
 
   // 내역이 계산되는 기간. 실제 날짜는 그대로 두고 periodShift(+1 다음 기간, -1 이전 기간)만큼 옮길 수 있다.
   // (월급이 시작일 하루 전에 들어온 경우 등. 시작일을 바꿔도 몇 기간 옮겼는지만 저장하니 어긋나지 않는다)
+  const THEMES = ['basic', 'y2k', 'cyber', 'terminal'];
+
   function txPeriod(t, startDay) {
     const p = getPeriod(t.date, startDay);
     const n = Math.trunc(Number(t.periodShift) || 0);
@@ -1092,7 +1094,7 @@
 
     return {
       version: 2,
-      settings: { startDay, myName: String(settings.myName || ''), theme: ['cyber', 'terminal'].includes(settings.theme) ? settings.theme : 'y2k' },
+      settings: { startDay, myName: String(settings.myName || ''), theme: THEMES.includes(settings.theme) ? settings.theme : 'basic' },
       plans,
       accounts,
       incomes: raw.incomes && typeof raw.incomes === 'object' ? raw.incomes : {},

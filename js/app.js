@@ -431,11 +431,25 @@
     box.querySelector('[data-goto]').addEventListener('click', () => showPage('plan'));
   }
 
+  // 페이 머니로 옮긴 돈은 있는데 그 기간 페이 결제내역이 없으면 가져오라고 알린다
+  function renderPayBox() {
+    const box = $('#pay-box');
+    const missing = L.payFlows(S(), currentPeriod).filter((f) => f.topup > 0 && !f.count);
+    box.innerHTML = missing.map((f) => `
+      <div class="card note-card warn-card">
+        <b>${esc(accountName(f.account.id))}로 옮긴 돈 ${won(f.topup)}의 결제내역이 아직 없어요.</b>
+        <p class="small">은행 내역의 ${esc(f.account.payName || f.account.name)} 출금은 충전이라 지출로 세지 않아요. 실제로 무엇을 샀는지는 ${esc(f.account.payName || f.account.name)} 결제내역을 가져와야 지출에 들어가요.</p>
+        <button class="ghost-btn" data-goto="add">결제내역 가져오기</button>
+      </div>`).join('');
+    box.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => showPage('add')));
+  }
+
   function renderHome() {
     const sum = L.summarizePeriod(S(), currentPeriod);
     renderIncomeBox(sum);
     renderStaleBox(sum);
     renderFixedBox(sum);
+    renderPayBox();
 
     const today = L.todayISO();
     const isCurrent = today >= currentPeriod.start && today <= currentPeriod.end;
@@ -800,6 +814,11 @@
 
   // ---------- 자산 ----------
 
+  function payFlowText(id) {
+    const f = L.payFlows(S(), currentPeriod).find((x) => x.account.id === id);
+    return `간편결제 머니 · 이번 기간 충전 ${won(f ? f.topup : 0)} · 결제 ${won(f ? f.spent : 0)}${f && f.count ? ` (${f.count}건)` : ''}`;
+  }
+
   function renderAssets() {
     const a = L.assetSummary(S(), currentPeriod);
     const hasBalance = a.banks.some((b) => typeof b.balance === 'number');
@@ -813,7 +832,7 @@
       ? a.banks.map((b) => `
         <div class="acct">
           <div class="acct-icon">${esc((b.name || '계좌').slice(0, 1))}</div>
-          <div><div class="acct-name">${esc(accountName(b.id))}</div><div class="acct-sub">끝자리 ${esc(b.last4 || '----')}${b.isSavings ? ' · 저축' : ''}${b.spent ? ` · 이번 기간 출금 ${won(b.spent)}` : ''}</div></div>
+          <div><div class="acct-name">${esc(accountName(b.id))}</div><div class="acct-sub">${b.type === 'pay' ? payFlowText(b.id) : `끝자리 ${esc(b.last4 || '----')}${b.isSavings ? ' · 저축' : ''}${b.spent ? ` · 이번 기간 출금 ${won(b.spent)}` : ''}`}</div></div>
           <div class="acct-bal">${typeof b.balance === 'number' ? won(b.balance) : '<span class="muted">잔액 미입력</span>'}
             <div class="acct-sub">${b.balanceAt ? `${fmtDateTime(b.balanceAt)} 기준 ` : ''}<button class="link edit-balance" data-id="${esc(b.id)}">수정</button></div>
           </div>
@@ -1001,6 +1020,7 @@
     $('#m-account').innerHTML = accountOptions(acc);
     const fileAcc = $('#file-account').value || (S().accounts.find((a) => a.type !== 'card') || {}).id || '';
     $('#file-account').innerHTML = accountOptions(fileAcc, '계좌 선택 안 함');
+    $('#paste-account').innerHTML = accountOptions($('#paste-account').value, '결제수단 모름');
     $('#m-memo').placeholder = manualKind === 'income' ? '(주)회사 급여' : manualKind === 'transfer' ? '적금 계좌로' : '스타벅스 강남점';
     updateManualHint();
     renderParseResult();
@@ -1083,7 +1103,12 @@
   async function onParse() {
     const { items, skipped } = L.parseExpenseText($('#paste-input').value, L.todayISO());
     Object.assign(preview, { source: 'paste', skipped, latest: null, accountId: null, fileName: '' });
-    preview.items = withDupFlags(items.map((it) => ({ ...it, kind: 'expense' })));
+    const pasteAcc = $('#paste-account').value || null;
+    preview.items = withDupFlags(items.map((it) => {
+      const x = { ...it, kind: 'expense', accountId: pasteAcc };
+      L.applyPayRules(x, S().accounts);
+      return x;
+    }));
     if (preview.items.length) await busy(store.aiEnabled ? `AI가 ${preview.items.length}건을 분류하는 중…` : null, () => classifyPreview(preview.items));
     renderParseResult();
   }
@@ -1096,7 +1121,9 @@
     } catch (e) {
       return toast(e.message || '파일을 읽지 못했어요.', 7000);
     }
-    const parsed = L.parseStatementRows(rows, { myName: S().settings.myName, accountId });
+    const fileAccount = S().accounts.find((a) => a.id === accountId);
+    const parsed = L.parseStatementRows(rows, { myName: S().settings.myName, accountId, payAccount: !!fileAccount && fileAccount.type === 'pay' });
+    parsed.items.forEach((it) => L.applyPayRules(it, S().accounts));
     if (!parsed.header) return toast('거래내역 표를 찾지 못했어요. 날짜와 금액 칸이 있는 은행 거래내역 파일인지 확인해 주세요.', 7000);
     Object.assign(preview, { source: 'file', skipped: [], latest: parsed.latest, accountId, fileName: file.name });
     preview.items = withDupFlags(parsed.items);
@@ -1261,11 +1288,15 @@
           <select class="a-type" aria-label="종류">
             <option value="bank" ${a.type !== 'card' ? 'selected' : ''}>은행 계좌</option>
             <option value="card" ${a.type === 'card' ? 'selected' : ''}>카드</option>
+            <option value="pay" ${a.type === 'pay' ? 'selected' : ''}>간편결제 머니</option>
           </select>
-          <input class="a-last" type="text" inputmode="numeric" maxlength="4" value="${esc(a.last4)}" placeholder="끝 4자리" aria-label="끝 4자리">
+          ${a.type === 'pay'
+            ? `<input class="a-payname" type="text" value="${esc(a.payName)}" placeholder="은행 내역에 찍히는 이름 (예: 카카오페이)" aria-label="은행 내역에 찍히는 이름">`
+            : `<input class="a-last" type="text" inputmode="numeric" maxlength="4" value="${esc(a.last4)}" placeholder="끝 4자리" aria-label="끝 4자리">`}
           <input class="a-bal" type="text" inputmode="numeric" value="${typeof a.balance === 'number' ? a.balance.toLocaleString('ko-KR') : ''}" placeholder="${a.type === 'card' ? '—' : '현재 잔액'}" ${a.type === 'card' ? 'disabled' : ''} aria-label="잔액">
-          <label class="check"><input type="checkbox" class="a-save" ${a.isSavings ? 'checked' : ''} ${a.type === 'card' ? 'disabled' : ''}>저축</label>
+          <label class="check"><input type="checkbox" class="a-save" ${a.isSavings ? 'checked' : ''} ${a.type !== 'bank' ? 'disabled' : ''}>저축</label>
           <button class="link-btn a-del" aria-label="삭제">✕</button>
+          ${a.type === 'pay' ? `<div class="acct-note small muted">은행 내역에 '${esc(a.payName || '이름')}'(으)로 찍힌 출금은 충전으로 보고 지출에서 뺍니다. 결제내역은 붙여넣기·파일 가져오기에서 결제수단을 이 항목으로 골라 넣으세요. <button class="link a-apply">이미 기록된 내역에도 적용</button></div>` : ''}
         </div>`).join('')
       : '<div class="empty">아직 등록한 계좌·카드가 없어요.</div>';
 
@@ -1282,13 +1313,31 @@
       row.querySelector('.a-type').addEventListener('change', (e) => {
         a.type = e.target.value;
         if (a.type === 'card') Object.assign(a, { balance: null, isSavings: false });
+        if (a.type === 'pay') Object.assign(a, { isSavings: false, payName: a.payName || (/페이|pay/i.test(a.name) ? a.name : '카카오페이') });
         save(true);
       });
-      row.querySelector('.a-last').addEventListener('change', (e) => {
+      const last = row.querySelector('.a-last');
+      if (last) last.addEventListener('change', (e) => {
         a.last4 = e.target.value.replace(/\D/g, '').slice(-4);
         e.target.value = a.last4;
         save();
       });
+      const payName = row.querySelector('.a-payname');
+      if (payName) payName.addEventListener('change', (e) => {
+        a.payName = e.target.value.trim();
+        save(true);
+      });
+      const apply = row.querySelector('.a-apply');
+      if (apply) apply.addEventListener('click', quiet(async () => {
+        const targets = S().transactions.filter((t) => L.applyPayRules({ ...t }, [a]));
+        if (!targets.length) return toast(`'${a.payName}'(으)로 찍힌 지출·입금이 없어요.`);
+        if (!confirm(`'${a.payName}'(으)로 찍힌 내역 ${targets.length}건을 충전(내 계좌 이동)으로 바꿀까요? 지출에서 빠집니다.`)) return;
+        await busy(`정리하는 중… (${targets.length}건)`, async () => {
+          for (const t of targets) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
+        });
+        toast(`${targets.length}건을 충전으로 바꿨어요.`);
+        render();
+      }));
       formatOnBlur(row.querySelector('.a-bal'));
       row.querySelector('.a-bal').addEventListener('change', (e) => {
         a.balance = parseAmountInput(e.target.value);
@@ -1338,6 +1387,9 @@
         </ol>
         <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl('bank'))}" id="url-bank"><button class="ghost-btn" data-copy="url-bank">복사</button></div>
         <p class="muted small">문자가 와도 반응이 없으면 트리거를 <b>알림 수신</b>(메시지 앱, 내용 <code>잔액</code>)으로 바꾸고 본문을 <code>[notification_title] [notification]</code> 로 하세요. 계좌·카드에 카카오뱅크 끝 4자리를 등록해 두면 잔액도 갱신돼요. 자세한 방법은 SETUP.md 6단계에 있어요.</p>
+        <h3>카카오페이 결제 알림 (선택)</h3>
+        <p class="muted small">계좌의 카카오페이 출금은 충전이라 지출로 세지 않아요(계좌·카드에 <b>간편결제 머니</b>로 카카오페이를 등록). 실제 결제는 카카오페이 결제내역을 붙여넣기·파일로 가져오거나, MacroDroid 매크로를 하나 더 만들어 실시간으로 받을 수 있어요: 트리거 <b>알림 수신</b>(앱: 카카오페이, 내용에 <code>원</code>) → 동작 <b>웹 접속 → HTTP 요청</b>(POST, 아래 주소, 본문 <code>[notification_title] [notification]</code>). 알림 접근 권한이 필요해요.</p>
+        <div class="copy-row"><input type="text" readonly value="${esc(notifyUrl('pay'))}" id="url-pay"><button class="ghost-btn" data-copy="url-pay">복사</button></div>
         <details class="small">
           <summary>직접 만든 알림 연결 앱 (선택, 보안 차단될 수 있음)</summary>
           <p class="muted">플레이 스토어 밖 앱이라 삼성 보안 기능이 설치를 막을 수 있어요. 보안 설정을 끄면서까지 쓰는 것은 권하지 않아요. <a href="${NOTI_APK_URL}" target="_blank" rel="noopener">APK 받기</a> · <a href="${esc(connectLink())}" target="_blank" rel="noopener">설치한 앱에 연결</a></p>

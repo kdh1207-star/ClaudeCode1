@@ -417,3 +417,27 @@ test('기간 옮기기: 날짜는 그대로, 계산되는 기간만 바뀐다 (�
   L.remapPeriodKeys(st, 25);
   assert.equal(L.txPeriod(st.transactions[0], 25).key, L.shiftPeriod(L.getPeriod('2026-10-09', 25), 1, 25).key);
 });
+
+test('간편결제 머니: 다른 계좌의 페이 출금은 충전, 페이 결제내역은 지출, 기간별 흐름', () => {
+  const accounts = [
+    { id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' },
+    { id: 'kp', name: '카카오페이', type: 'pay', payName: '카카오페이' },
+  ];
+  const topup = { date: '2026-10-11', amount: 50000, memo: '카카오페이 충전', kind: 'expense', categoryId: 'c-food', accountId: 'kb' };
+  assert.equal(L.applyPayRules(topup, accounts), true);
+  assert.deepEqual([topup.kind, topup.categoryId], ['transfer', null]);
+  const payItem = { date: '2026-10-11', amount: 4500, memo: '카카오페이 스타벅스', kind: 'expense', accountId: 'kp' };
+  assert.equal(L.applyPayRules(payItem, accounts), false); // 페이 자체 내역은 그대로 지출
+  assert.equal(L.applyPayRules({ memo: '스타벅스', kind: 'expense', accountId: 'kb' }, accounts), false);
+
+  const st = L.normalizeState({ settings: { startDay: 10 }, accounts, transactions: [{ id: '1', ...topup }, { id: '2', ...payItem }] });
+  assert.equal(st.accounts[1].type, 'pay');
+  assert.equal(st.accounts[1].payName, '카카오페이');
+  const flows = L.payFlows(st, L.getPeriod('2026-10-11', 10));
+  assert.deepEqual(flows.map((f) => [f.account.id, f.topup, f.spent, f.count]), [['kp', 50000, 4500, 1]]);
+
+  // 페이 결제내역 파일의 충전 줄은 내 계좌 이동
+  const rows = [['거래일시', '구분', '금액', '내용'], ['2026-10-11 10:00', '충전', '30,000', '카카오페이머니 충전'], ['2026-10-11 12:00', '결제', '-4,500', '스타벅스']];
+  const parsed = L.parseStatementRows(rows, { accountId: 'kp', payAccount: true });
+  assert.deepEqual(parsed.items.map((i) => [i.kind, i.amount, i.memo]), [['transfer', 30000, '카카오페이머니 충전'], ['expense', 4500, '스타벅스']]);
+});

@@ -404,6 +404,53 @@
     return null;
   }
 
+  // ---------- 간편결제 머니 (카카오페이 등) ----------
+  // 은행 내역에 '카카오페이'로 찍히는 출금은 페이 머니로 옮긴 돈(충전)이라 지출이 아니다.
+  // 실제 지출은 페이 결제내역(그 페이 계정으로 가져온 내역)으로 센다. 금액이 달라도 1:1로 맞출 필요가 없다.
+  function payAccountForMemo(memo, accounts) {
+    const m = normalizeMerchant(memo);
+    if (!m) return null;
+    for (const a of accounts || []) {
+      if (a.type !== 'pay') continue;
+      const key = normalizeMerchant(a.payName || a.name);
+      if (key && m.includes(key)) return a;
+    }
+    return null;
+  }
+
+  // 다른 계좌의 내역인데 사용처가 페이 이름이면 '내 계좌 이동'(충전·환급)으로 바꾼다. 바꿨으면 true
+  function applyPayRules(item, accounts) {
+    if (kindOf(item) === 'transfer') return false;
+    const acc = payAccountForMemo(item.memo, accounts);
+    if (!acc || item.accountId === acc.id) return false;
+    item.kind = 'transfer';
+    item.categoryId = null;
+    item.method = null;
+    return true;
+  }
+
+  // 기간별 페이 머니 흐름: 충전(다른 계좌에서 옮긴 돈)과 페이 결제내역
+  function payFlows(state, period) {
+    const txs = txsInPeriod(state, period);
+    return state.accounts.filter((a) => a.type === 'pay').map((acc) => {
+      let topup = 0;
+      let spent = 0;
+      let count = 0;
+      for (const t of txs) {
+        const k = kindOf(t);
+        if (t.accountId === acc.id) {
+          if (k === 'expense') {
+            spent += t.amount;
+            count += 1;
+          }
+        } else if (k === 'transfer' && payAccountForMemo(t.memo, [acc])) {
+          topup += t.amount;
+        }
+      }
+      return { account: acc, topup, spent, count };
+    });
+  }
+
   function accountByLast4(last4, accounts) {
     const d = digitsOnly(last4).slice(-4);
     if (d.length < 3) return null;
@@ -798,6 +845,8 @@
         amount = -amount;
       }
       if (opts.myName && memo.includes(opts.myName) && !/카드|결제|승인/.test(allText)) kind = 'transfer';
+      // 페이 결제내역 파일: 은행에서 채워 넣은 충전은 지출·수입이 아니라 내 계좌 이동
+      if (opts.payAccount && /충전/.test(allText) && !/취소|환불/.test(allText)) kind = 'transfer';
 
       const balance = parseAmountCell(get(row, 'balance'));
       const item = {
@@ -1004,8 +1053,9 @@
     const accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).map((a) => ({
       id: String(a.id),
       name: String(a.name || ''),
-      type: a.type === 'card' ? 'card' : 'bank',
+      type: a.type === 'card' || a.type === 'pay' ? a.type : 'bank',
       last4: digitsOnly(a.last4).slice(-4),
+      payName: String(a.payName || ''),
       isSavings: !!a.isSavings,
       balance: typeof a.balance === 'number' ? a.balance : null,
       balanceAt: String(a.balanceAt || ''),
@@ -1030,6 +1080,9 @@
     todayISO,
     daysInMonth,
     getPeriod,
+    payAccountForMemo,
+    applyPayRules,
+    payFlows,
     txPeriod,
     txsInPeriod,
     shiftPeriod,

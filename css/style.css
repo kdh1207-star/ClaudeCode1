@@ -390,13 +390,15 @@ select.full { width: 100%; }
 .acct-row .check { display: flex; align-items: center; gap: 4px; font-size: 13px; white-space: nowrap; }
 .acct-row .check input { width: auto; }
 @media (max-width: 700px) {
-  .acct-row { grid-template-columns: 1fr 1fr auto; grid-template-areas: "name name del" "type last last" "bal bal save"; }
+  .acct-row { grid-template-columns: 1fr 1fr auto; grid-template-areas: "name name del" "type last last" "bal bal save" "note note note"; }
+  .acct-row .a-payname { grid-area: last; }
+  .acct-row .acct-note { grid-area: note; }
   .acct-row .a-name { grid-area: name; }
   .acct-row .a-type { grid-area: type; }
   .acct-row .a-last { grid-area: last; }
   .acct-row .a-bal { grid-area: bal; }
   .acct-row .check { grid-area: save; }
-  .acct-row .link-btn { grid-area: del; }
+  .acct-row .a-del { grid-area: del; }
 }
 .copy-row { display: flex; gap: 8px; margin: 6px 0 12px; }
 .copy-row input { flex: 1; font-size: 13px; }
@@ -472,3 +474,5 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
 .rule-name { font-weight: 600; overflow-wrap: anywhere; }
 .rule-arrow { color: var(--text-2); }
 .tx-meta select.tx-move { max-width: 150px; color: var(--text-2); }
+.acct-note { grid-column: 1 / -1; line-height: 1.5; }
+.paste-acct { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin: 6px 0 10px; max-width: 320px; }

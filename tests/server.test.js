@@ -89,7 +89,7 @@ function makeEnv({ props = {}, claude } = {}) {
   vm.createContext(ctx);
   vm.runInContext(CODE, ctx);
   const api = (action, payload, key = 'secret') => ctx.api({ key, action, payload });
-  const sms = (text, key = 'secret') => JSON.parse(ctx.doPost({ parameter: { action: 'sms', key }, postData: { contents: text } }).text);
+  const sms = (text, key = 'secret', source) => JSON.parse(ctx.doPost({ parameter: { action: 'sms', key, source }, postData: { contents: text } }).text);
   return { ctx, sheets, requests, properties, api, sms };
 }
 
@@ -353,4 +353,31 @@ test('앱 설정에서 Claude API 키 넣기·지우기, 모델 바꾸기', () =
   assert.equal(env.api('setModel', { model: 'claude-haiku-5-5' }).model, 'claude-haiku-5-5');
   assert.match(env.api('setModel', { model: 'gpt' }).error, /지원하지 않는/);
   assert.equal(env.api('setApiKey', { apiKey: '' }).ai, false);
+});
+
+test('카카오페이: 은행 문자의 페이 출금은 충전(내 계좌 이동), 페이 앱 알림은 페이 머니 지출', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk' },
+    claude: (body) => {
+      const text = JSON.parse(body.messages[0].content).message;
+      if (/카카오뱅크/.test(text)) return msg({ kind: 'expense', date: '2026-10-09', amount: 50000, merchant: '카카오페이', account_last4: '1234', categoryId: 'c-food' });
+      return msg({ kind: 'expense', date: '2026-10-09', amount: 4500, merchant: '스타벅스', categoryId: 'c-cafe' });
+    },
+  });
+  const meta = env.api('load').state;
+  meta.accounts = [
+    { id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' },
+    { id: 'kp', name: '카카오페이', type: 'pay', payName: '카카오페이' },
+  ];
+  env.api('saveMeta', { meta });
+
+  const bank = env.sms('[카카오뱅크] 김*현(1234) 10/09 출금 50,000원 카카오페이 잔액 100,000원');
+  assert.equal(bank.tx.kind, 'transfer');
+  assert.equal(bank.tx.categoryId, null);
+  assert.equal(bank.tx.accountId, 'kb');
+
+  const pay = env.sms('카카오페이 결제 완료 스타벅스 4,500원', 'secret', 'pay');
+  assert.equal(pay.tx.kind, 'expense');
+  assert.equal(pay.tx.accountId, 'kp');
+  assert.equal(pay.tx.categoryId, 'c-cafe');
 });

@@ -467,3 +467,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
 .sort-group details summary { font-size: 13px; color: var(--text-2); cursor: pointer; }
 .sort-others { margin-top: 12px; align-items: center; }
 .sort-others:empty { display: none; }
+.rule-rows { margin-top: 12px; display: flex; flex-direction: column; }
+.rule-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.rule-name { font-weight: 600; overflow-wrap: anywhere; }
+.rule-arrow { color: var(--text-2); }

@@ -136,7 +136,7 @@
       .join('');
   }
 
-  const METHOD_LABEL = { ai: 'AI', learned: '기억', keyword: '키워드', manual: '직접' };
+  const METHOD_LABEL = { ai: 'AI', learned: '규칙', keyword: '키워드', manual: '직접' };
   const methodTag = (m) => (m && METHOD_LABEL[m] ? `<span class="tag">${METHOD_LABEL[m]}</span>` : '');
 
   // ---------- 페이지 이동 ----------
@@ -300,12 +300,9 @@
         render();
         return;
       }
-      const key = L.normalizeMerchant(t.memo);
-      if (s.value) S().merchantMap[key] = s.value;
-      else delete S().merchantMap[key];
-      store.saveMeta();
+      // 이 내역 하나만 바꾼다. 같은 가맹점·상대를 계속 같은 항목으로 넣으려면 설정 → 자동 분류 규칙에서 따로 만든다.
       await busy(null, () => store.updateTransaction(t.id, { kind: 'expense', categoryId: s.value || null, method: s.value ? 'manual' : null }));
-      toast(`'${t.memo}' 은(는) 앞으로 ${categoryInfo(t.categoryId, planForDate(t.date).categories).name}(으)로 분류합니다.`);
+      toast(`이 내역만 ${categoryInfo(s.value || null, planForDate(t.date).categories).name}(으)로 바꿨어요.`);
       render();
     })));
     container.querySelectorAll('.tx-del').forEach((b) => b.addEventListener('click', quiet(async () => {
@@ -692,7 +689,7 @@
     const skipped = g.items.length - done;
     toast(`'${g.memo}' ${done}건을 ${what}(으)로 정리했어요.` +
       (skipped ? ` (${skipped}건은 그때 계획에 이 항목이 없어 남겨 뒀어요)` : '') +
-      (categoryId && learn ? ' 다음부터 자동으로 분류해요.' : ''));
+      (categoryId && learn ? ' 자동 분류 규칙도 만들었어요.' : ''));
     render();
   }
 
@@ -1009,10 +1006,6 @@
     if (!date) return toast('날짜를 입력해 주세요.');
     if (amount === null || amount === 0) return toast('금액을 입력해 주세요.');
     const sel = manualKind === 'expense' ? $('#m-category').value : '';
-    if (sel && sel !== '__auto') {
-      S().merchantMap[L.normalizeMerchant(memo)] = sel;
-      store.saveMeta();
-    }
     const item = {
       date, amount, memo, kind: manualKind, accountId: $('#m-account').value || null, source: 'manual',
       categoryId: sel === '' ? null : sel,
@@ -1153,12 +1146,6 @@
     const chosen = preview.items.filter((x) => x.checked && x.date);
     if (!chosen.length) return toast('추가할 내역을 선택해 주세요.');
     let changedMeta = false;
-    for (const it of chosen) {
-      if (it.method === 'manual' && it.categoryId) {
-        S().merchantMap[L.normalizeMerchant(it.memo)] = it.categoryId;
-        changedMeta = true;
-      }
-    }
     // 파일의 마지막 잔액이 지금 알고 있는 잔액보다 최근이면 계좌 잔액을 바꾼다
     const acc = preview.accountId && S().accounts.find((a) => a.id === preview.accountId);
     if (acc && preview.latest) {
@@ -1209,11 +1196,32 @@
     sd.value = String(S().settings.startDay);
     $('#my-name').value = S().settings.myName || '';
     renderAccountRows();
+    renderRules();
     renderAutoCard();
     $('#data-note').textContent = store.mode === 'remote'
       ? '데이터는 구글 시트에 저장됩니다. 백업 불러오기를 하면 백업의 계획·계좌를 적용하고 내역을 시트에 추가합니다.'
       : '모든 데이터는 이 브라우저에만 저장됩니다. 다른 기기로 옮기거나 백업하려면 내보내기를 사용하세요.';
     $('#reset-btn').hidden = store.mode === 'remote';
+  }
+
+  // 자동 분류 규칙: 이 가맹점·상대는 항상 이 항목 (AI보다 먼저 적용). 직접 만들고 지운다.
+  function renderRules() {
+    const cats = currentPlan().categories;
+    const entries = Object.entries(S().merchantMap).sort((a, b) => a[0].localeCompare(b[0], 'ko'));
+    $('#rule-cat').innerHTML = cats.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+    const el = $('#rule-rows');
+    el.innerHTML = entries.length
+      ? entries.map(([name, id]) => {
+        const c = cats.find((x) => x.id === id);
+        return `<div class="rule-row"><span class="rule-name">${esc(name)}</span><span class="rule-arrow">→</span><span>${c ? esc(c.name) : '<span class="muted">지금 계획에 없는 항목</span>'}</span><button class="link-btn rule-del" data-name="${esc(name)}" aria-label="${esc(name)} 규칙 삭제">✕</button></div>`;
+      }).join('')
+      : '<div class="empty small">아직 규칙이 없어요. 모든 지출은 AI(또는 키워드)가 분류합니다.</div>';
+    el.querySelectorAll('.rule-del').forEach((b) => b.addEventListener('click', () => {
+      delete S().merchantMap[b.dataset.name];
+      store.saveMeta();
+      toast('규칙을 지웠어요. 이미 분류된 내역은 그대로예요.');
+      renderRules();
+    }));
   }
 
   function renderAccountRows() {
@@ -1498,6 +1506,16 @@
     $('#my-name').addEventListener('change', (e) => {
       S().settings.myName = e.target.value.trim();
       store.saveMeta();
+    });
+    $('#rule-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = L.normalizeMerchant($('#rule-name').value);
+      if (!name) return toast('가맹점이나 상대 이름을 입력해 주세요.');
+      S().merchantMap[name] = $('#rule-cat').value;
+      store.saveMeta();
+      $('#rule-name').value = '';
+      toast('규칙을 만들었어요. 앞으로 들어오는 내역부터 적용돼요.');
+      renderRules();
     });
     $('#add-account').addEventListener('click', addAccount);
     $('#export-btn').addEventListener('click', exportData);

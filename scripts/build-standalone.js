@@ -5,12 +5,21 @@
 const fs = require('fs');
 const path = require('path');
 
+const crypto = require('crypto');
+
 const root = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
 // pack: 기능 코드를 base64 로 감싸 넣는다 (구글 웹 앱용). 전달 중에 글자가 바뀌어도 코드가 깨지지 않는다.
+// 앱 버전: 소스 내용으로 만든 짧은 해시. 설정 화면 맨 아래에 보여서, 폰에 새 버전이 반영됐는지 확인할 수 있다.
+function buildId() {
+  const h = crypto.createHash('sha256');
+  for (const f of ['index.html', 'css/style.css', 'js/logic.js', 'js/charts.js', 'js/xlsx.js', 'js/store.js', 'js/app.js', 'server/server.js']) h.update(read(f));
+  return h.digest('hex').slice(0, 7);
+}
+
 function buildHtml({ pack = false } = {}) {
-  let html = read('index.html');
+  let html = read('index.html').replace('__BUILD_ID__', buildId());
   html = html.replace(/<link rel="stylesheet" href="([^"]+)">/g, (_, href) => `<style>\n${read(href)}</style>`);
   html = html.replace(/<script src="([^"]+)"><\/script>/g, (_, src) => {
     const js = read(src);
@@ -41,7 +50,7 @@ function outputs() {
   };
 }
 
-module.exports = { buildHtml, buildCodeGs, outputs };
+module.exports = { buildHtml, buildCodeGs, outputs, buildId };
 
 if (require.main === module) {
   fs.mkdirSync(path.join(root, 'apps-script'), { recursive: true });
@@ -49,4 +58,5 @@ if (require.main === module) {
     fs.writeFileSync(path.join(root, file), content);
     console.log(`만듦: ${file}`);
   }
+  console.log(`앱 버전: ${buildId()}`);
 }

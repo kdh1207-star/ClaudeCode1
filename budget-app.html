@@ -2618,9 +2618,11 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     settings: { title: '설정', period: false },
   };
 
-  function showPage(name, { push = true } = {}) {
+  function showPage(name, { push = true, keepPeriod = false } = {}) {
     if (!PAGES[name]) name = 'home';
     currentPage = name;
+    // 미분류 정리는 들어올 때마다 이번 기간(설정한 시작일 기준)부터 보여준다
+    if (name === 'sort' && !keepPeriod) currentPeriod = L.getPeriod(L.todayISO(), S().settings.startDay);
     $$('.page').forEach((p) => p.classList.toggle('active', p.dataset.page === name));
     $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === name));
     $$('.bottom-nav [data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === name));
@@ -2928,7 +2930,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
       rowsEl.innerHTML = rows.join('');
       rowsEl.querySelectorAll('.cat-row').forEach((el) => {
         el.addEventListener('click', () => {
-          if (el.dataset.cat === '__none') return showPage('sort');
+          if (el.dataset.cat === '__none') return showPage('sort', { keepPeriod: true });
           Object.assign(listState, { category: el.dataset.cat, kind: 'all', account: 'all', search: '' });
           showPage('list');
         });

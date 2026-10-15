@@ -1,5 +1,6 @@
 // 자동 생성 파일 (npm run build). 직접 고치지 말고 js/logic.js, server/server.js 를 고치세요.
 // 구글 Apps Script 의 Code.gs 에 이 파일 전체를 붙여넣으면 됩니다.
+/** @OnlyCurrentDoc */ // 이 코드가 붙은 시트 하나만 읽고 쓰도록 권한을 좁힌다 (내 다른 시트에는 접근 권한 없음)
 /*
  * 지출 관리 앱의 순수 로직 (DOM 없음).
  * 브라우저에서는 window.BudgetLogic 으로, Node(테스트)에서는 require 로 사용한다.

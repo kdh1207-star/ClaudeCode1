@@ -24,6 +24,7 @@ function buildCodeGs(html = buildHtml()) {
   return [
     '// 자동 생성 파일 (npm run build). 직접 고치지 말고 js/logic.js, server/server.js 를 고치세요.',
     '// 구글 Apps Script 의 Code.gs 에 이 파일 전체를 붙여넣으면 됩니다.',
+    '/** @OnlyCurrentDoc */ // 이 코드가 붙은 시트 하나만 읽고 쓰도록 권한을 좁힌다 (내 다른 시트에는 접근 권한 없음)',
     read('js/logic.js'),
     read('server/server.js'),
     `var INDEX_HTML = ${JSON.stringify(html)};`,

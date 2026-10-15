@@ -620,6 +620,71 @@ th { font-family: var(--font-caps); font-size: 11px; letter-spacing: .12em; colo
   .sidebar { box-shadow: none; }
 }
 
+/* ---------- 장식 ---------- */
+/* 카드 모서리 재단선 */
+.card {
+  background:
+    linear-gradient(#dfe6f2, #dfe6f2) left 6px top 6px / 9px 1px no-repeat,
+    linear-gradient(#dfe6f2, #dfe6f2) left 6px top 6px / 1px 9px no-repeat,
+    linear-gradient(#dfe6f2, #dfe6f2) right 6px top 6px / 9px 1px no-repeat,
+    linear-gradient(#dfe6f2, #dfe6f2) right 6px top 6px / 1px 9px no-repeat,
+    linear-gradient(#dfe6f2, #dfe6f2) left 6px bottom 6px / 9px 1px no-repeat,
+    linear-gradient(#dfe6f2, #dfe6f2) left 6px bottom 6px / 1px 9px no-repeat,
+    linear-gradient(#dfe6f2, #dfe6f2) right 6px bottom 6px / 9px 1px no-repeat,
+    linear-gradient(#dfe6f2, #dfe6f2) right 6px bottom 6px / 1px 9px no-repeat,
+    linear-gradient(180deg, rgba(25, 28, 34, .92), rgba(12, 14, 17, .92));
+}
+.hero-card { background: none; }
+/* 영문 소제목 */
+h2[data-kicker]::before {
+  content: attr(data-kicker); display: block; margin-bottom: 4px;
+  font-family: var(--font-caps); font-weight: 800; font-size: 10px; letter-spacing: .34em; color: var(--muted);
+}
+/* 화면 양옆 필름 잡티 줄 */
+.main::before, .main::after {
+  content: ""; position: fixed; top: 0; bottom: 0; width: 2px; pointer-events: none; z-index: 1; opacity: .55;
+  background: repeating-linear-gradient(180deg, rgba(235, 242, 255, .5) 0 2px, transparent 2px 11px, rgba(235, 242, 255, .25) 11px 12px, transparent 12px 31px, rgba(235, 242, 255, .4) 31px 37px, transparent 37px 64px);
+}
+.main::before { left: calc(var(--sidebar-w) + 10px); }
+.main::after { right: 12px; background-position: 0 27px; }
+@media (max-width: 900px) { .main::before { left: 5px; } .main::after { right: 5px; } }
+
+/* 히어로: 크롬 문양, 반짝이, 머리줄, 외곽선 잔상 */
+.hero-card { background: none; }
+.hero-card::before {
+  display: block !important; content: ""; position: absolute; inset: 6% 0 4%; z-index: 0; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 200 124%27%3E%3Cdefs%3E%3ClinearGradient id=%27c%27 x1=%270%27 y1=%270%27 x2=%270.2%27 y2=%271%27%3E%3Cstop offset=%270%27 stop-color=%27%23ffffff%27/%3E%3Cstop offset=%27.32%27 stop-color=%27%239aa2af%27/%3E%3Cstop offset=%27.46%27 stop-color=%27%231b1e24%27/%3E%3Cstop offset=%27.55%27 stop-color=%27%23eef2f7%27/%3E%3Cstop offset=%27.78%27 stop-color=%27%238d95a3%27/%3E%3Cstop offset=%271%27 stop-color=%27%23ffffff%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill=%27url%28%23c%29%27 stroke=%27%23ffffff%27 stroke-opacity=%27.55%27 stroke-width=%27.6%27%3E%3Cpath d=%27M100 58 C88 44 70 30 34 26 C52 34 62 42 70 52 C52 46 30 46 6 60 C34 58 54 60 70 66 C52 72 36 86 28 108 C46 90 62 80 80 76 C74 88 72 100 76 116 C82 98 88 86 100 80 Z M96 40 C92 26 86 14 76 4 C80 18 84 30 86 44 Z%27/%3E%3Cpath d=%27M100 58 C88 44 70 30 34 26 C52 34 62 42 70 52 C52 46 30 46 6 60 C34 58 54 60 70 66 C52 72 36 86 28 108 C46 90 62 80 80 76 C74 88 72 100 76 116 C82 98 88 86 100 80 Z M96 40 C92 26 86 14 76 4 C80 18 84 30 86 44 Z%27 transform=%27translate%28200 0%29 scale%28-1 1%29%27/%3E%3C/g%3E%3C/svg%3E") center 62% / min(400px, 92%) auto no-repeat;
+  opacity: .22; filter: blur(.3px) drop-shadow(0 0 18px rgba(200, 220, 255, .6));
+}
+.hero-card .figure, .hero-card .label, .hero-card .sub, .hero-card .meter, .hero-meta { position: relative; z-index: 1; }
+.hero-card::after { display: none; }
+.hero-card { isolation: isolate; }
+.hero-card > .figure { text-shadow: none; }
+.hero-card::marker { content: none; }
+.hero-meta {
+  font-family: var(--font-caps); font-weight: 600; font-size: 10px; letter-spacing: .26em; color: var(--text-2); margin-bottom: 18px;
+}
+.hero-meta span { color: #fff; text-shadow: 0 0 8px #fff; margin: 0 4px; }
+.hero-card .figure::after {
+  content: attr(data-echo); position: absolute; left: 0; right: 0; top: 0.52em; z-index: -1;
+  color: transparent; -webkit-text-stroke: 1px rgba(223, 230, 242, .16); background: none; filter: none;
+  text-shadow: 0 0.38em 0 transparent; pointer-events: none;
+}
+.hero-card .figure { padding-bottom: 0.5em; margin-bottom: -0.2em; }
+.spark { position: absolute; font-style: normal; color: #fff; pointer-events: none; z-index: 2;
+  text-shadow: 0 0 6px #fff, 0 0 16px #fff, 0 0 32px rgba(190, 215, 255, .9); animation: twinkle 3.2s ease-in-out infinite; }
+.sp1 { top: 30%; right: 12%; font-size: 24px; }
+.sp2 { top: 54%; left: 8%; font-size: 14px; animation-delay: 1.1s; }
+.sp3 { top: 14%; left: 22%; font-size: 12px; animation-delay: 2s; opacity: .8; }
+.sp4 { bottom: 18%; right: 20%; font-size: 10px; animation-delay: .6s; }
+@keyframes twinkle { 0%, 100% { opacity: 1; transform: scale(1) rotate(0); } 50% { opacity: .35; transform: scale(.7) rotate(20deg); } }
+
+/* 섹션 사이 구분 장식 */
+.page > .card + .card::before { content: none; }
+.nav-sep { height: 1px; background: linear-gradient(90deg, transparent, #dfe6f2, transparent); position: relative; overflow: visible; margin: 14px 12px; }
+.nav-sep::after { content: "✦"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -52%); font-size: 10px; color: #fff; background: rgba(5, 6, 8, 1); padding: 0 6px; text-shadow: 0 0 8px #fff; }
+.topbar h1::after { content: " ✦"; font-size: 14px; vertical-align: super; }
+
 /* 설명 문구 접기 (ⓘ) */
 .hint-toggle {
   display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 8px; vertical-align: middle;
@@ -741,18 +806,18 @@ p.hint-collapsed { display: none; }
           </div>
           <div class="card">
             <div class="card-head">
-              <h2>항목별 예산</h2>
+              <h2 data-kicker="BUDGET">항목별 예산</h2>
               <span id="alloc-note" class="muted small"></span>
             </div>
             <div id="category-rows"></div>
           </div>
           <div class="grid-2">
             <div class="card">
-              <div class="card-head"><h2>최근 내역</h2><button class="link" data-goto="list">전체 보기</button></div>
+              <div class="card-head"><h2 data-kicker="RECENT">최근 내역</h2><button class="link" data-goto="list">전체 보기</button></div>
               <div id="recent-list"></div>
             </div>
             <div class="card">
-              <div class="card-head"><h2>자산</h2><button class="link" data-goto="assets">자세히</button></div>
+              <div class="card-head"><h2 data-kicker="ASSETS">자산</h2><button class="link" data-goto="assets">자세히</button></div>
               <div id="home-assets"></div>
             </div>
           </div>
@@ -802,11 +867,11 @@ p.hint-collapsed { display: none; }
             <div class="card" id="report-merchants"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h2>어디에 썼나요</h2><span class="muted small">이번 기간 지출 구성</span></div>
+            <div class="card-head"><h2 data-kicker="BREAKDOWN">어디에 썼나요</h2><span class="muted small">이번 기간 지출 구성</span></div>
             <div id="report-share"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h2>기간별 추이</h2><span class="muted small">최근 6개 기간</span></div>
+            <div class="card-head"><h2 data-kicker="TREND">기간별 추이</h2><span class="muted small">최근 6개 기간</span></div>
             <div id="report-trend"></div>
           </div>
         </section>
@@ -815,11 +880,11 @@ p.hint-collapsed { display: none; }
         <section class="page" data-page="assets">
           <div class="card hero-card" id="asset-hero"></div>
           <div class="card">
-            <div class="card-head"><h2>계좌</h2><button class="link" data-goto="settings">계좌 관리</button></div>
+            <div class="card-head"><h2 data-kicker="ACCOUNTS">계좌</h2><button class="link" data-goto="settings">계좌 관리</button></div>
             <div id="asset-banks"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h2>카드</h2><span class="muted small">이번 기간 사용액</span></div>
+            <div class="card-head"><h2 data-kicker="CARDS">카드</h2><span class="muted small">이번 기간 사용액</span></div>
             <div id="asset-cards"></div>
           </div>
         </section>
@@ -827,7 +892,7 @@ p.hint-collapsed { display: none; }
         <!-- 미분류 정리 -->
         <section class="page" data-page="sort">
           <div class="card">
-            <div class="card-head"><h2 id="sort-title">미분류 정리</h2><span id="sort-total" class="muted small"></span></div>
+            <div class="card-head"><h2 id="sort-title" data-kicker="UNSORTED">미분류 정리</h2><span id="sort-total" class="muted small"></span></div>
             <p class="muted small">위에서 고른 기간에 AI나 키워드가 항목을 정하지 못한 지출이에요. 같은 가맹점·상대에게 쓴 것끼리 묶었으니, 알맞은 항목을 누르면 묶음 전체가 그 항목으로 들어가요.</p>
             <label class="check-row"><input type="checkbox" id="sort-learn"> 고를 때 자동 분류 규칙도 만들기 (같은 가맹점·상대는 앞으로 항상 이 항목으로)</label>
             <div id="sort-others" class="pick-row sort-others"></div>
@@ -839,12 +904,12 @@ p.hint-collapsed { display: none; }
         <section class="page" data-page="plan">
           <div id="plan-version" class="card note-card"></div>
           <div class="card">
-            <h2>비율 항목의 기준 금액</h2>
+            <h2 data-kicker="RATIO BASE">비율 항목의 기준 금액</h2>
             <select id="ratio-base" class="full">
               <option value="afterFixed">수입에서 고정 항목을 뺀 나머지</option>
               <option value="income">전체 수입</option>
             </select>
-            <h2 class="sub-head">고정 항목 합계가 수입보다 클 때</h2>
+            <h2 class="sub-head" data-kicker="OVERFLOW">고정 항목 합계가 수입보다 클 때</h2>
             <select id="fixed-overflow" class="full">
               <option value="warn">그대로 두고 알려 주기</option>
               <option value="scale">수입에 맞게 비율대로 줄이기</option>
@@ -853,7 +918,7 @@ p.hint-collapsed { display: none; }
           </div>
           <div class="card">
             <div class="card-head">
-              <h2>항목별 배분</h2>
+              <h2 data-kicker="ALLOCATION">항목별 배분</h2>
               <button id="add-category" class="ghost-btn small-btn">+ 항목 추가</button>
             </div>
             <p class="muted small"><b>수입 비례(%)</b>: 그 기간에 들어온 돈에 비례해 한도가 정해집니다. <b>고정 금액</b>: 수입과 상관없이 매 기간 같은 한도입니다.<br><b>설명</b>은 AI가 지출을 분류할 때 참고합니다. 예: "외식, 배달, 장보기". <b>키워드</b>는 쉼표로 구분하며, AI를 쓸 수 없을 때 사용처에 키워드가 들어 있으면 그 항목으로 분류합니다.</p>
@@ -866,7 +931,7 @@ p.hint-collapsed { display: none; }
         <section class="page" data-page="add">
           <div id="auto-hint" class="card note-card"></div>
           <div class="card">
-            <h2>직접 입력</h2>
+            <h2 data-kicker="MANUAL">직접 입력</h2>
             <div class="segmented" id="m-kind" role="radiogroup" aria-label="종류">
               <button type="button" data-kind="expense" class="active">지출</button>
               <button type="button" data-kind="income">입금</button>
@@ -883,7 +948,7 @@ p.hint-collapsed { display: none; }
             <p id="m-hint" class="muted small"></p>
           </div>
           <div class="card">
-            <h2>내역 붙여넣기</h2>
+            <h2 data-kicker="PASTE">내역 붙여넣기</h2>
             <p class="muted small">카드 승인 문자, 은행/카드 앱 내역, 엑셀에서 복사한 표를 그대로 붙여넣으세요. 한 줄에 한 건씩 날짜·금액·사용처를 읽고 <span id="classifier-name">항목</span>을 자동으로 정합니다.</p>
             <label class="paste-acct">결제수단<select id="paste-account"></select></label>
             <textarea id="paste-input" rows="6" placeholder="예)&#10;2026-09-27 배달의민족 23,500원&#10;9월 25일 카카오T 택시 8,400원&#10;09/24 올리브영 강남점 32,000원"></textarea>
@@ -894,7 +959,7 @@ p.hint-collapsed { display: none; }
             <div id="parse-result"></div>
           </div>
           <div class="card">
-            <h2>거래내역 파일 가져오기 (은행·카카오페이)</h2>
+            <h2 data-kicker="IMPORT">거래내역 파일 가져오기 (은행·카카오페이)</h2>
             <p class="muted small">카카오뱅크: 앱에서 계좌 선택 → 오른쪽 위 설정(톱니바퀴) → <b>거래내역</b> → 이메일과 기간을 넣고 받기. 메일로 온 엑셀(.xlsx)이나 CSV 파일을 그대로 올리세요. 다른 은행 파일도 날짜·금액 칸이 있으면 읽습니다. 알림으로 이미 들어온 내역은 <b>중복?</b>으로 표시하고 빼 둡니다.</p>
             <div class="form-grid">
               <label>어느 계좌·페이의 내역인가요<select id="file-account"></select></label>
@@ -916,7 +981,7 @@ p.hint-collapsed { display: none; }
             </nav>
             <div>
               <div class="card" id="set-basic">
-                <h2>기본</h2>
+                <h2 data-kicker="BASICS">기본</h2>
                 <div class="form-grid">
                   <label>매 기간 시작일
                     <select id="start-day"></select>
@@ -929,13 +994,13 @@ p.hint-collapsed { display: none; }
               </div>
 
               <div class="card" id="set-accounts">
-                <div class="card-head"><h2>계좌·카드</h2><button id="add-account" class="ghost-btn small-btn">+ 추가</button></div>
+                <div class="card-head"><h2 data-kicker="ACCOUNTS">계좌·카드</h2><button id="add-account" class="ghost-btn small-btn">+ 추가</button></div>
                 <p class="muted small">번호는 <b>끝 4자리</b>만 넣으세요. 알림에 적힌 번호로 어느 계좌·카드의 거래인지 찾고, 은행 알림의 잔액으로 계좌 잔액을 자동으로 갱신합니다. <b>저축 계좌</b>로 옮긴 돈은 저축 항목 지출로 기록합니다.</p>
                 <div id="account-rows"></div>
               </div>
 
               <div class="card" id="set-rules">
-                <h2>자동 분류 규칙</h2>
+                <h2 data-kicker="RULES">자동 분류 규칙</h2>
                 <p class="muted small">여기 적은 가맹점·상대는 AI보다 먼저, 항상 정한 항목으로 분류합니다. 내역에서 항목을 바꾸는 건 그 내역 하나에만 적용되고 규칙을 만들지 않아요. 같은 사람에게 여러 용도로 보내는 경우엔 규칙을 만들지 마세요.</p>
                 <form id="rule-form" class="form-grid">
                   <label>가맹점·상대 이름<input type="text" id="rule-name" placeholder="예: 스타벅스, 집주인" autocomplete="off"></label>
@@ -948,9 +1013,9 @@ p.hint-collapsed { display: none; }
               <div class="card" id="set-auto"></div>
 
               <div class="card" id="set-data">
-                <h2>데이터</h2>
+                <h2 data-kicker="DATA">데이터</h2>
                 <p id="data-note" class="muted small"></p>
-                <p class="muted small">앱 버전 <code id="build-id">0f3ac72</code></p>
+                <p class="muted small">앱 버전 <code id="build-id">80ad6af</code></p>
                 <div class="row-actions">
                   <button id="export-btn" class="ghost-btn">백업 내보내기(JSON)</button>
                   <label class="ghost-btn file-btn">백업 불러오기<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -3204,6 +3269,18 @@ p.hint-collapsed { display: none; }
     })));
   }
 
+  // 포스터 머리줄: VOL(월) ✦ 기간 ✦ D-day, 그리고 반짝이 장식
+  function heroMeta(isCurrent, daysLeft) {
+    const p = currentPeriod;
+    const s = L.parseISO(p.start);
+    const e = L.parseISO(p.end);
+    const pad = (n) => String(n).padStart(2, '0');
+    const parts = [`VOL.${pad(s.m)}`, `${s.y}.${pad(s.m)}.${pad(s.d)} — ${pad(e.m)}.${pad(e.d)}`];
+    if (isCurrent) parts.push(`D-${daysLeft}`);
+    return `<div class="hero-meta">${parts.map(esc).join(' <span>✦</span> ')}</div>
+      <i class="spark sp1" aria-hidden="true">✦</i><i class="spark sp2" aria-hidden="true">✦</i><i class="spark sp3" aria-hidden="true">✧</i><i class="spark sp4" aria-hidden="true">✦</i>`;
+  }
+
   function renderHome() {
     const sum = L.summarizePeriod(S(), currentPeriod);
     renderIncomeBox(sum);
@@ -3219,14 +3296,16 @@ p.hint-collapsed { display: none; }
       const ratio = sum.income > 0 ? sum.totalSpent / sum.income : sum.totalSpent > 0 ? Infinity : 0;
       const status = L.statusOf(ratio);
       hero.innerHTML = `
+        ${heroMeta(isCurrent, daysLeft)}
         <div class="label">LEFT TO SPEND</div>
-        <div class="figure ${sum.remaining < 0 ? 'negative' : ''}">${won(sum.remaining)}</div>
+        <div class="figure ${sum.remaining < 0 ? 'negative' : ''}" data-echo="${won(sum.remaining)}">${won(sum.remaining)}</div>
         <div class="sub">${won(sum.income)} 중 ${won(sum.totalSpent)} 사용 (${sum.income > 0 ? Math.round(ratio * 100) : 0}%)</div>
         <div class="meter ${status}" role="meter" aria-valuemin="0" aria-valuemax="${sum.income}" aria-valuenow="${sum.totalSpent}" aria-label="예산 사용"><div class="meter-fill" style="width:${Math.min(100, ratio * 100)}%"></div></div>`;
     } else {
       hero.innerHTML = `
+        ${heroMeta(isCurrent, daysLeft)}
         <div class="label">SPENT THIS PERIOD</div>
-        <div class="figure">${won(sum.totalSpent)}</div>
+        <div class="figure" data-echo="${won(sum.totalSpent)}">${won(sum.totalSpent)}</div>
         <div class="sub">수입을 입력하면 항목별 한도와 남은 돈을 계산해 드려요.</div>`;
     }
 

@@ -462,6 +462,18 @@
     })));
   }
 
+  // 포스터 머리줄: VOL(월) ✦ 기간 ✦ D-day, 그리고 반짝이 장식
+  function heroMeta(isCurrent, daysLeft) {
+    const p = currentPeriod;
+    const s = L.parseISO(p.start);
+    const e = L.parseISO(p.end);
+    const pad = (n) => String(n).padStart(2, '0');
+    const parts = [`VOL.${pad(s.m)}`, `${s.y}.${pad(s.m)}.${pad(s.d)} — ${pad(e.m)}.${pad(e.d)}`];
+    if (isCurrent) parts.push(`D-${daysLeft}`);
+    return `<div class="hero-meta">${parts.map(esc).join(' <span>✦</span> ')}</div>
+      <i class="spark sp1" aria-hidden="true">✦</i><i class="spark sp2" aria-hidden="true">✦</i><i class="spark sp3" aria-hidden="true">✧</i><i class="spark sp4" aria-hidden="true">✦</i>`;
+  }
+
   function renderHome() {
     const sum = L.summarizePeriod(S(), currentPeriod);
     renderIncomeBox(sum);
@@ -477,14 +489,16 @@
       const ratio = sum.income > 0 ? sum.totalSpent / sum.income : sum.totalSpent > 0 ? Infinity : 0;
       const status = L.statusOf(ratio);
       hero.innerHTML = `
+        ${heroMeta(isCurrent, daysLeft)}
         <div class="label">LEFT TO SPEND</div>
-        <div class="figure ${sum.remaining < 0 ? 'negative' : ''}">${won(sum.remaining)}</div>
+        <div class="figure ${sum.remaining < 0 ? 'negative' : ''}" data-echo="${won(sum.remaining)}">${won(sum.remaining)}</div>
         <div class="sub">${won(sum.income)} 중 ${won(sum.totalSpent)} 사용 (${sum.income > 0 ? Math.round(ratio * 100) : 0}%)</div>
         <div class="meter ${status}" role="meter" aria-valuemin="0" aria-valuemax="${sum.income}" aria-valuenow="${sum.totalSpent}" aria-label="예산 사용"><div class="meter-fill" style="width:${Math.min(100, ratio * 100)}%"></div></div>`;
     } else {
       hero.innerHTML = `
+        ${heroMeta(isCurrent, daysLeft)}
         <div class="label">SPENT THIS PERIOD</div>
-        <div class="figure">${won(sum.totalSpent)}</div>
+        <div class="figure" data-echo="${won(sum.totalSpent)}">${won(sum.totalSpent)}</div>
         <div class="sub">수입을 입력하면 항목별 한도와 남은 돈을 계산해 드려요.</div>`;
     }
 

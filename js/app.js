@@ -470,8 +470,7 @@
     const pad = (n) => String(n).padStart(2, '0');
     const parts = [`VOL.${pad(s.m)}`, `${s.y}.${pad(s.m)}.${pad(s.d)} — ${pad(e.m)}.${pad(e.d)}`];
     if (isCurrent) parts.push(`D-${daysLeft}`);
-    return `<div class="hero-meta">${parts.map(esc).join(' <span>✦</span> ')}</div>
-      <i class="spark sp1" aria-hidden="true">✦</i><i class="spark sp2" aria-hidden="true">✦</i><i class="spark sp3" aria-hidden="true">✧</i><i class="spark sp4" aria-hidden="true">✦</i>`;
+    return `<div class="hero-meta">${parts.map(esc).join(' <span>✦</span> ')}</div>`;
   }
 
   function renderHome() {
@@ -491,14 +490,14 @@
       hero.innerHTML = `
         ${heroMeta(isCurrent, daysLeft)}
         <div class="label">LEFT TO SPEND</div>
-        <div class="figure ${sum.remaining < 0 ? 'negative' : ''}" data-echo="${won(sum.remaining)}">${won(sum.remaining)}</div>
+        <div class="figure ${sum.remaining < 0 ? 'negative' : ''}">${won(sum.remaining)}</div>
         <div class="sub">${won(sum.income)} 중 ${won(sum.totalSpent)} 사용 (${sum.income > 0 ? Math.round(ratio * 100) : 0}%)</div>
         <div class="meter ${status}" role="meter" aria-valuemin="0" aria-valuemax="${sum.income}" aria-valuenow="${sum.totalSpent}" aria-label="예산 사용"><div class="meter-fill" style="width:${Math.min(100, ratio * 100)}%"></div></div>`;
     } else {
       hero.innerHTML = `
         ${heroMeta(isCurrent, daysLeft)}
         <div class="label">SPENT THIS PERIOD</div>
-        <div class="figure" data-echo="${won(sum.totalSpent)}">${won(sum.totalSpent)}</div>
+        <div class="figure">${won(sum.totalSpent)}</div>
         <div class="sub">수입을 입력하면 항목별 한도와 남은 돈을 계산해 드려요.</div>`;
     }
 
@@ -1730,8 +1729,107 @@
     });
   }
 
+  // 배경: 작고 불규칙한 픽셀 잡티·반짝임·긁힘을 화면 전체에 흩뿌린다 (매번 같은 무늬가 나오도록 고정 씨앗)
+  function drawBackdrop() {
+    let cv = document.getElementById('backdrop');
+    if (!cv) {
+      cv = document.createElement('canvas');
+      cv.id = 'backdrop';
+      cv.setAttribute('aria-hidden', 'true');
+      document.body.prepend(cv);
+    }
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+    const g = cv.getContext('2d');
+    if (!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    let seed = 20261015;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const area = (w * h) / (390 * 844);
+    const white = (a) => `rgba(236, 242, 252, ${a})`;
+
+    // 픽셀 잡티: 1~3px 점과 짧은 세로 대시
+    for (let i = 0; i < 140 * area; i++) {
+      const x = rnd() * w;
+      const y = rnd() * h;
+      g.fillStyle = white(0.12 + rnd() * 0.45);
+      if (rnd() < 0.3) g.fillRect(Math.round(x), Math.round(y), 1, 3 + Math.round(rnd() * 9));
+      else { const s = 1 + Math.round(rnd() * 2); g.fillRect(Math.round(x), Math.round(y), s, s); }
+    }
+    // 픽셀 뭉치: 작은 사각형 몇 개가 모인 덩어리
+    for (let i = 0; i < 10 * area; i++) {
+      const x = rnd() * w;
+      const y = rnd() * h;
+      for (let k = 0; k < 4 + rnd() * 8; k++) {
+        g.fillStyle = white(0.15 + rnd() * 0.35);
+        g.fillRect(Math.round(x + (rnd() - 0.5) * 16), Math.round(y + (rnd() - 0.5) * 24), 1 + Math.round(rnd() * 2), 1 + Math.round(rnd() * 3));
+      }
+    }
+    // 긁힘: 가늘고 살짝 기운 선
+    g.lineWidth = 0.6;
+    for (let i = 0; i < 14 * area; i++) {
+      const x = rnd() * w;
+      const y = rnd() * h;
+      const len = 20 + rnd() * 140;
+      const ang = (rnd() < 0.6 ? Math.PI / 2 : 0) + (rnd() - 0.5) * 0.5;
+      g.strokeStyle = white(0.05 + rnd() * 0.12);
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+      g.stroke();
+    }
+    // 반짝임: 크기가 제각각인 4갈래 빛 (작은 것 위주)
+    for (let i = 0; i < 26 * area; i++) {
+      const x = rnd() * w;
+      const y = rnd() * h;
+      const r = rnd() < 0.8 ? 2 + rnd() * 4 : 6 + rnd() * 7;
+      const a = 0.35 + rnd() * 0.6;
+      const grd = g.createRadialGradient(x, y, 0, x, y, r * 1.8);
+      grd.addColorStop(0, white(a * 0.5));
+      grd.addColorStop(1, white(0));
+      g.fillStyle = grd;
+      g.beginPath();
+      g.arc(x, y, r * 1.8, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = white(a);
+      g.beginPath();
+      g.moveTo(x, y - r);
+      g.quadraticCurveTo(x, y, x + r * 0.7, y);
+      g.quadraticCurveTo(x, y, x, y + r);
+      g.quadraticCurveTo(x, y, x - r * 0.7, y);
+      g.quadraticCurveTo(x, y, x, y - r);
+      g.fill();
+    }
+    // 작은 + 표시
+    g.lineWidth = 1;
+    for (let i = 0; i < 8 * area; i++) {
+      const x = Math.round(rnd() * w) + 0.5;
+      const y = Math.round(rnd() * h) + 0.5;
+      const r = 2 + Math.round(rnd() * 3);
+      g.strokeStyle = white(0.2 + rnd() * 0.3);
+      g.beginPath();
+      g.moveTo(x - r, y); g.lineTo(x + r, y);
+      g.moveTo(x, y - r); g.lineTo(x, y + r);
+      g.stroke();
+    }
+  }
+
   async function start() {
     window.__budgetStarted = true;
+    try {
+      drawBackdrop();
+    } catch (e) {
+      /* 장식이라 실패해도 앱은 그대로 */
+    }
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { try { drawBackdrop(); } catch (e) { /* 무시 */ } }, 150);
+    });
     bindEvents();
     if (store.mode === 'remote' && !store.server.key) await askKey();
     const toMigrate = store.takeMigration();

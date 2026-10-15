@@ -118,6 +118,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .page.active { display: block; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .grid-2 > .card { margin-bottom: 16px; }
+.grid-2 > * { min-width: 0; }
 
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 25; }
 .bottom-nav { display: none; }
@@ -1016,21 +1017,22 @@ th { font-family: var(--font-caps); font-size: 10px; letter-spacing: .1em; color
   .nav-count { background: var(--amber); color: #11100d; border-radius: 2px; text-shadow: none; }
 
   .topbar { background: rgba(17, 16, 13, .94); border-bottom: 1px dashed var(--border); }
-  .period-label strong { font-family: var(--font-mono); font-weight: 400; font-size: 21px; color: var(--amber); text-shadow: var(--glow); }
+  .period-label strong { font-family: var(--font-mono); font-weight: 400; font-size: 17px; white-space: nowrap; color: var(--amber); text-shadow: var(--glow); }
 
   /* 히어로: 큰 고정폭 숫자 + 깜빡이는 커서 */
   .hero-card { text-align: left; padding: 22px 22px 20px; }
-  .hero-meta { font-family: var(--font-mono); font-size: 17px; color: var(--amber-dim); margin-bottom: 12px; border-bottom: 1px dashed var(--border); padding-bottom: 6px; }
+  .hero-meta { font-family: var(--font-mono); font-size: 15px; color: var(--amber-dim); margin-bottom: 12px; border-bottom: 1px dashed var(--border); padding-bottom: 6px; }
   .hero-meta::before { content: "$ ./status "; color: var(--amber); }
   .hero-meta span { margin: 0 3px; }
   .hero-card .label { font-family: var(--font-mono); font-size: 18px; letter-spacing: .06em; color: var(--amber-dim); }
   .hero-card .label::before { content: "> "; }
   .hero-card .figure { font-family: var(--font-mono); font-weight: 400; font-size: 76px; line-height: .95; color: var(--amber); text-shadow: 0 0 1px #ffbe1a, 0 0 10px rgba(255, 190, 26, .5); margin: 8px 0 6px; letter-spacing: 0; }
   .hero-card .figure.negative { color: var(--hot); text-shadow: 0 0 3px rgba(255, 106, 61, .95), 0 0 18px rgba(255, 106, 61, .5); }
-  .hero-card .sub { color: var(--amber-dim); font-family: var(--font-mono); font-size: 18px; }
+  .hero-card .sub { color: var(--amber-dim); font-family: var(--font-mono); font-size: 16px; }
   .hero-card .sub::after { content: "\A> ▋"; white-space: pre; color: var(--amber); animation: termBlink 1.06s steps(1) infinite; }
   .hero-card .meter { margin-top: 14px; }
-  @media (max-width: 520px) { .hero-card .figure { font-size: 58px; } }
+  .hero-card .figure { white-space: nowrap; }
+  @media (max-width: 520px) { .hero-card .figure { font-size: 44px; } }
 
   /* 막대: ████░░░░ 같은 블록 게이지 */
   .meter { height: 14px; border-radius: 2px; background: repeating-linear-gradient(90deg, rgba(255, 190, 26, .14) 0 8px, transparent 8px 10px); border: 1px solid var(--border); }
@@ -1046,7 +1048,7 @@ th { font-family: var(--font-caps); font-size: 10px; letter-spacing: .1em; color
   .remain-good { color: var(--good-text); }
   .remain-bad, .status.critical, .warn { color: var(--hot); }
   .num, .tx-amount, .kv .v, .acct-bal, .share-amount, .rank .a, .cat-amounts, .cal-spent, .cal-income, td.amount, .sort-sum, .list-total { font-family: var(--font-mono); font-weight: 400; }
-  .tx-amount, .kv .v, .acct-bal, .share-amount, .rank .a, .sort-sum { font-size: 20px; }
+  .tx-amount, .kv .v, .acct-bal, .share-amount, .rank .a, .sort-sum { font-size: 18px; }
   .cat-amounts, .list-total, .tag, .chip, .badge, .tx-date, th, .cal-dow, .cal-num { font-size: 16px; }
   .hero-card .meter { height: 16px; }
 
@@ -1444,7 +1446,7 @@ p.hint-collapsed { display: none; }
               <div class="card" id="set-data">
                 <h2 data-kicker="DATA">데이터</h2>
                 <p id="data-note" class="muted small"></p>
-                <p class="muted small">앱 버전 <code id="build-id">6b4f2f0</code></p>
+                <p class="muted small">앱 버전 <code id="build-id">51b716c</code></p>
                 <div class="row-actions">
                   <button id="export-btn" class="ghost-btn">백업 내보내기(JSON)</button>
                   <label class="ghost-btn file-btn">백업 불러오기<input type="file" id="import-file" accept="application/json,.json" hidden></label>

@@ -1663,7 +1663,7 @@
     // 설정
     $('#start-day').addEventListener('change', (e) => changeStartDay(Number(e.target.value)));
     $('#theme-select').addEventListener('change', (e) => {
-      S().settings.theme = e.target.value === 'cyber' ? 'cyber' : 'y2k';
+      S().settings.theme = ['cyber', 'terminal'].includes(e.target.value) ? e.target.value : 'y2k';
       store.saveMeta();
       applyTheme();
     });
@@ -1738,7 +1738,7 @@
 
   // 테마: <html data-skin> 로 겉모습을 바꾸고, 다음에 열 때 깜빡이지 않게 이 기기에도 기억한다
   function applyTheme() {
-    const t = S().settings.theme === 'cyber' ? 'cyber' : 'y2k';
+    const t = ['cyber', 'terminal'].includes(S().settings.theme) ? S().settings.theme : 'y2k';
     if (document.documentElement.getAttribute('data-skin') === t) return;
     document.documentElement.setAttribute('data-skin', t);
     try {
@@ -1774,6 +1774,7 @@
     let seed = 20261015;
     const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
     const area = (w * h) / (390 * 844);
+    if (document.documentElement.getAttribute('data-skin') === 'terminal') return; // 터미널은 깨끗한 화면
     if (document.documentElement.getAttribute('data-skin') === 'cyber') {
       // 작은 + 표식, 모서리 괄호, 짧은 데이터 막대
       const cols = ['0, 240, 255', '252, 238, 10', '255, 31, 75'];

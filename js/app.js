@@ -1395,7 +1395,7 @@
       box.innerHTML = `
         <form class="card key-card" id="key-form">
           <h2>접속 키를 입력하세요</h2>
-          <p class="muted small">구글 Apps Script 편집기에서 <b>setup</b> 을 실행하면 실행 기록에 나오는 키예요. 한 번 입력하면 이 기기가 기억해요.</p>
+          <p class="muted small">구글 Apps Script 편집기에서 <b>setup</b> 을 실행하면 실행 기록에 나오는 키예요. (안 보이면 ⚙ 프로젝트 설정 → 스크립트 속성의 <b>APP_KEY</b>) 한 번 입력하면 이 기기가 기억해요.</p>
           <input type="password" id="key-input" autocomplete="current-password" placeholder="접속 키" required>
           <div class="row-actions"><button type="submit" class="primary-btn">들어가기</button></div>
           <p class="small warn" id="key-error" hidden></p>

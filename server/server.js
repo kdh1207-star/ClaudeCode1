@@ -79,6 +79,7 @@ function setup() {
     '다음 단계: 오른쪽 위 [배포] → [새 배포] → 웹 앱 (실행: 나, 액세스: 모든 사용자)',
   ].join('\n');
   Logger.log(msg);
+  if (typeof console !== 'undefined') console.log(msg);
   return msg;
 }
 

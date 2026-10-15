@@ -145,7 +145,7 @@
     home: { title: '홈', period: true },
     calendar: { title: '달력', period: true },
     list: { title: '내역', period: true },
-    sort: { title: '미분류 정리', period: false },
+    sort: { title: '미분류 정리', period: true },
     report: { title: '리포트', period: true },
     assets: { title: '자산', period: true },
     plan: { title: '예산 계획', period: true },
@@ -194,7 +194,7 @@
       chip.className = `chip ${store.aiEnabled ? 'on' : ''}`;
     }
     $('#refresh-btn').hidden = store.mode !== 'remote';
-    const unsorted = L.unclassifiedGroups(S()).reduce((n, g) => n + g.items.length, 0);
+    const unsorted = L.unclassifiedByPeriod(S()).reduce((n, e) => n + e.count, 0);
     $('#sort-count').textContent = unsorted > 99 ? '99+' : String(unsorted);
     $('#sort-count').hidden = !unsorted;
 
@@ -614,13 +614,28 @@
   // ---------- 미분류 정리 ----------
 
   function renderSort() {
-    const groups = L.unclassifiedGroups(S());
+    const groups = L.unclassifiedGroups(S(), currentPeriod);
     const count = groups.reduce((n, g) => n + g.items.length, 0);
     const total = groups.reduce((n, g) => n + g.total, 0);
+    $('#sort-title').textContent = '이 기간 미분류';
     $('#sort-total').textContent = count ? `${count}건 · ${won(total)}` : '';
+
+    // 다른 기간에 남은 미분류: 눌러서 그 기간으로 이동
+    const others = L.unclassifiedByPeriod(S()).filter((e) => e.period.key !== currentPeriod.key);
+    const otherEl = $('#sort-others');
+    otherEl.innerHTML = others.length
+      ? `<span class="muted small">다른 기간에도 남아 있어요:</span> ${others.map((e) => `<button class="pick-btn" data-period="${esc(e.period.key)}">${esc(periodLabel(e.period))} · ${e.count}건</button>`).join('')}`
+      : '';
+    otherEl.querySelectorAll('[data-period]').forEach((b) => b.addEventListener('click', () => {
+      const e = others.find((x) => x.period.key === b.dataset.period);
+      currentPeriod = e.period;
+      render();
+      window.scrollTo(0, 0);
+    }));
+
     const el = $('#sort-groups');
     if (!groups.length) {
-      el.innerHTML = '<div class="card"><div class="empty">미분류 지출이 없어요. 모두 정리됐어요.</div></div>';
+      el.innerHTML = `<div class="card"><div class="empty">이 기간에는 미분류 지출이 없어요.${others.length ? ' 위에서 다른 기간을 골라 정리하세요.' : ' 모두 정리됐어요.'}</div></div>`;
       return;
     }
     el.innerHTML = groups.map((g, gi) => {

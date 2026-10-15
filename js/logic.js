@@ -447,14 +447,33 @@
     return found;
   }
 
-  // 모든 기간의 미분류 지출을 가맹점(상대방)별로 묶는다. 최근에 생긴 묶음부터.
   // 미분류 = 지출인데 항목이 없거나, 그 날짜가 속한 기간의 계획에 없는 항목인 것
-  function unclassifiedGroups(state) {
+  function isUnclassified(state, t) {
+    if (kindOf(t) !== 'expense') return false;
+    const cats = planFor(state, getPeriod(t.date, state.settings.startDay).key).categories;
+    return !(t.categoryId && cats.some((c) => c.id === t.categoryId));
+  }
+
+  // 기간별 미분류 건수: [{ period, count, total }] 최근 기간부터
+  function unclassifiedByPeriod(state) {
     const byKey = new Map();
     for (const t of state.transactions) {
-      if (kindOf(t) !== 'expense') continue;
-      const cats = planFor(state, getPeriod(t.date, state.settings.startDay).key).categories;
-      if (t.categoryId && cats.some((c) => c.id === t.categoryId)) continue;
+      if (!isUnclassified(state, t)) continue;
+      const p = getPeriod(t.date, state.settings.startDay);
+      if (!byKey.has(p.key)) byKey.set(p.key, { period: p, count: 0, total: 0 });
+      const e = byKey.get(p.key);
+      e.count += 1;
+      e.total += t.amount;
+    }
+    return [...byKey.values()].sort((a, b) => (a.period.key < b.period.key ? 1 : -1));
+  }
+
+  // 미분류 지출을 가맹점(상대방)별로 묶는다. period 를 주면 그 기간 것만. 최근에 생긴 묶음부터.
+  function unclassifiedGroups(state, period) {
+    const byKey = new Map();
+    for (const t of state.transactions) {
+      if (period && (t.date < period.start || t.date > period.end)) continue;
+      if (!isUnclassified(state, t)) continue;
       const key = normalizeMerchant(t.memo) || t.memo;
       if (!byKey.has(key)) byKey.set(key, { key, memo: t.memo, items: [], total: 0, latest: '' });
       const g = byKey.get(key);
@@ -1019,6 +1038,7 @@
     BASE_PLAN_FROM,
     planFor,
     unclassifiedGroups,
+    unclassifiedByPeriod,
     ensurePlanFor,
     nextPlanAfter,
     remapPeriodKeys,

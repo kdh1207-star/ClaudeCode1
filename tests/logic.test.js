@@ -383,4 +383,14 @@ test('미분류 정리: 미분류 지출을 가맹점별로 묶고, 그 기간 �
     ['스타벅스', 1, 4500, '2026-10-05'],
   ]);
   assert.deepEqual(g[0].items.map((t) => t.id), ['2', '1']);
+
+  // 기간별로 나누기
+  const sep = L.getPeriod('2026-09-05', 1);
+  assert.deepEqual(L.unclassifiedGroups(st, sep), []);
+  st.transactions.push({ id: '7', date: '2026-09-20', amount: 7000, memo: '다이소', categoryId: null, kind: 'expense' });
+  assert.deepEqual(L.unclassifiedGroups(st, sep).map((x) => x.memo), ['다이소']);
+  assert.deepEqual(L.unclassifiedByPeriod(st).map((e) => [e.period.key, e.count, e.total]), [
+    ['2026-10-01', 3, 54500],
+    ['2026-09-01', 1, 7000],
+  ]);
 });

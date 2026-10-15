@@ -472,6 +472,8 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
 .pick-btn .dot { width: 8px; height: 8px; border-radius: 50%; }
 .pick-btn.other { color: var(--text-2); border-style: dashed; }
 .sort-group details summary { font-size: 13px; color: var(--text-2); cursor: pointer; }
+.sort-others { margin-top: 12px; align-items: center; }
+.sort-others:empty { display: none; }
 </style>
 </head>
 <body>
@@ -666,8 +668,9 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
         <section class="page" data-page="sort">
           <div class="card">
             <div class="card-head"><h2 id="sort-title">미분류 정리</h2><span id="sort-total" class="muted small"></span></div>
-            <p class="muted small">AI나 키워드가 항목을 정하지 못한 지출이에요. 같은 가맹점·상대에게 쓴 것끼리 묶었으니, 알맞은 항목을 누르면 묶음 전체가 그 항목으로 들어가요.</p>
+            <p class="muted small">위에서 고른 기간에 AI나 키워드가 항목을 정하지 못한 지출이에요. 같은 가맹점·상대에게 쓴 것끼리 묶었으니, 알맞은 항목을 누르면 묶음 전체가 그 항목으로 들어가요.</p>
             <label class="check-row"><input type="checkbox" id="sort-learn" checked> 고른 항목을 기억해서 다음부터 같은 가맹점·상대는 자동으로 분류</label>
+            <div id="sort-others" class="pick-row sort-others"></div>
           </div>
           <div id="sort-groups"></div>
         </section>
@@ -1250,14 +1253,33 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     return found;
   }
 
-  // 모든 기간의 미분류 지출을 가맹점(상대방)별로 묶는다. 최근에 생긴 묶음부터.
   // 미분류 = 지출인데 항목이 없거나, 그 날짜가 속한 기간의 계획에 없는 항목인 것
-  function unclassifiedGroups(state) {
+  function isUnclassified(state, t) {
+    if (kindOf(t) !== 'expense') return false;
+    const cats = planFor(state, getPeriod(t.date, state.settings.startDay).key).categories;
+    return !(t.categoryId && cats.some((c) => c.id === t.categoryId));
+  }
+
+  // 기간별 미분류 건수: [{ period, count, total }] 최근 기간부터
+  function unclassifiedByPeriod(state) {
     const byKey = new Map();
     for (const t of state.transactions) {
-      if (kindOf(t) !== 'expense') continue;
-      const cats = planFor(state, getPeriod(t.date, state.settings.startDay).key).categories;
-      if (t.categoryId && cats.some((c) => c.id === t.categoryId)) continue;
+      if (!isUnclassified(state, t)) continue;
+      const p = getPeriod(t.date, state.settings.startDay);
+      if (!byKey.has(p.key)) byKey.set(p.key, { period: p, count: 0, total: 0 });
+      const e = byKey.get(p.key);
+      e.count += 1;
+      e.total += t.amount;
+    }
+    return [...byKey.values()].sort((a, b) => (a.period.key < b.period.key ? 1 : -1));
+  }
+
+  // 미분류 지출을 가맹점(상대방)별로 묶는다. period 를 주면 그 기간 것만. 최근에 생긴 묶음부터.
+  function unclassifiedGroups(state, period) {
+    const byKey = new Map();
+    for (const t of state.transactions) {
+      if (period && (t.date < period.start || t.date > period.end)) continue;
+      if (!isUnclassified(state, t)) continue;
       const key = normalizeMerchant(t.memo) || t.memo;
       if (!byKey.has(key)) byKey.set(key, { key, memo: t.memo, items: [], total: 0, latest: '' });
       const g = byKey.get(key);
@@ -1822,6 +1844,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     BASE_PLAN_FROM,
     planFor,
     unclassifiedGroups,
+    unclassifiedByPeriod,
     ensurePlanFor,
     nextPlanAfter,
     remapPeriodKeys,
@@ -2587,7 +2610,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
     home: { title: '홈', period: true },
     calendar: { title: '달력', period: true },
     list: { title: '내역', period: true },
-    sort: { title: '미분류 정리', period: false },
+    sort: { title: '미분류 정리', period: true },
     report: { title: '리포트', period: true },
     assets: { title: '자산', period: true },
     plan: { title: '예산 계획', period: true },
@@ -2636,7 +2659,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
       chip.className = `chip ${store.aiEnabled ? 'on' : ''}`;
     }
     $('#refresh-btn').hidden = store.mode !== 'remote';
-    const unsorted = L.unclassifiedGroups(S()).reduce((n, g) => n + g.items.length, 0);
+    const unsorted = L.unclassifiedByPeriod(S()).reduce((n, e) => n + e.count, 0);
     $('#sort-count').textContent = unsorted > 99 ? '99+' : String(unsorted);
     $('#sort-count').hidden = !unsorted;
 
@@ -3056,13 +3079,28 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
   // ---------- 미분류 정리 ----------
 
   function renderSort() {
-    const groups = L.unclassifiedGroups(S());
+    const groups = L.unclassifiedGroups(S(), currentPeriod);
     const count = groups.reduce((n, g) => n + g.items.length, 0);
     const total = groups.reduce((n, g) => n + g.total, 0);
+    $('#sort-title').textContent = '이 기간 미분류';
     $('#sort-total').textContent = count ? `${count}건 · ${won(total)}` : '';
+
+    // 다른 기간에 남은 미분류: 눌러서 그 기간으로 이동
+    const others = L.unclassifiedByPeriod(S()).filter((e) => e.period.key !== currentPeriod.key);
+    const otherEl = $('#sort-others');
+    otherEl.innerHTML = others.length
+      ? `<span class="muted small">다른 기간에도 남아 있어요:</span> ${others.map((e) => `<button class="pick-btn" data-period="${esc(e.period.key)}">${esc(periodLabel(e.period))} · ${e.count}건</button>`).join('')}`
+      : '';
+    otherEl.querySelectorAll('[data-period]').forEach((b) => b.addEventListener('click', () => {
+      const e = others.find((x) => x.period.key === b.dataset.period);
+      currentPeriod = e.period;
+      render();
+      window.scrollTo(0, 0);
+    }));
+
     const el = $('#sort-groups');
     if (!groups.length) {
-      el.innerHTML = '<div class="card"><div class="empty">미분류 지출이 없어요. 모두 정리됐어요.</div></div>';
+      el.innerHTML = `<div class="card"><div class="empty">이 기간에는 미분류 지출이 없어요.${others.length ? ' 위에서 다른 기간을 골라 정리하세요.' : ' 모두 정리됐어요.'}</div></div>`;
       return;
     }
     el.innerHTML = groups.map((g, gi) => {

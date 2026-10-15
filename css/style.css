@@ -465,3 +465,5 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
 .pick-btn .dot { width: 8px; height: 8px; border-radius: 50%; }
 .pick-btn.other { color: var(--text-2); border-style: dashed; }
 .sort-group details summary { font-size: 13px; color: var(--text-2); cursor: pointer; }
+.sort-others { margin-top: 12px; align-items: center; }
+.sort-others:empty { display: none; }

@@ -3708,7 +3708,7 @@ details summary { cursor: pointer; color: var(--text-2); margin-top: 8px; }
   function renderAutoCard() {
     const card = $('#set-auto');
     if (store.mode === 'remote') {
-      const MODEL_LABEL = { 'claude-opus-5-5': 'Claude Opus 5.5 (기본, 가장 정확)', 'claude-haiku-4-5': 'Claude Haiku 4.5 (저렴, 약 1/4 비용)' };
+      const MODEL_LABEL = { 'claude-opus-5-5': 'Claude Opus 5.5 (기본, 가장 정확)', 'claude-haiku-5-5': 'Claude Haiku 5.5 (추천, 아주 저렴)', 'claude-haiku-4-5': 'Claude Haiku 4.5 (예전 모델)' };
       card.innerHTML = `
         <h2>자동 입력</h2>
         <h3>Claude AI 분류</h3>

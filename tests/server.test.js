@@ -142,7 +142,20 @@ test('카드 문자 → Claude 가 읽고 분류해서 시트에 기록', () => 
   assert.equal(env.sms(SMS).reason, 'duplicate');
 });
 
-test('Haiku 로 바꾸면 effort·fallbacks 를 보내지 않는다', () => {
+test('Haiku 5.5 는 effort 를 보내고 fallbacks 는 보내지 않는다', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk', CLAUDE_MODEL: 'claude-haiku-5-5' },
+    claude: () => msg({ kind: 'not_transaction', amount: 0, categoryId: 'none' }),
+  });
+  assert.equal(env.sms('광고 문자 10,000원 할인 결제').reason, 'not_transaction');
+  const body = env.requests[0].body;
+  assert.equal(body.model, 'claude-haiku-5-5');
+  assert.equal(body.output_config.effort, 'low');
+  assert.equal(body.fallbacks, undefined);
+  assert.equal(env.requests[0].headers['anthropic-beta'], undefined);
+});
+
+test('예전에 고른 Haiku 4.5 는 effort·fallbacks 를 보내지 않는다', () => {
   const env = makeEnv({
     props: { ANTHROPIC_API_KEY: 'sk', CLAUDE_MODEL: 'claude-haiku-4-5' },
     claude: () => msg({ kind: 'not_transaction', amount: 0, categoryId: 'none' }),
@@ -318,7 +331,7 @@ test('앱 설정에서 Claude API 키 넣기·지우기, 모델 바꾸기', () =
   const off = env.api('ping');
   assert.equal(off.ai, false);
   assert.equal(off.model, 'claude-opus-5-5');
-  assert.deepEqual([...off.models], ['claude-opus-5-5', 'claude-haiku-4-5']);
+  assert.deepEqual([...off.models], ['claude-opus-5-5', 'claude-haiku-5-5']);
 
   assert.match(env.api('setApiKey', { apiKey: 'hello' }).error, /sk-ant-/);
   assert.match(env.api('setApiKey', { apiKey: 'sk-ant-bad' }).error, /올바르지 않아요/);
@@ -331,7 +344,7 @@ test('앱 설정에서 Claude API 키 넣기·지우기, 모델 바꾸기', () =
   assert.equal(env.properties.ANTHROPIC_API_KEY, 'sk-ant-good');
   assert.equal(JSON.stringify(on).includes('sk-ant-good'), false); // 키를 화면으로 돌려주지 않는다
 
-  assert.equal(env.api('setModel', { model: 'claude-haiku-4-5' }).model, 'claude-haiku-4-5');
+  assert.equal(env.api('setModel', { model: 'claude-haiku-5-5' }).model, 'claude-haiku-5-5');
   assert.match(env.api('setModel', { model: 'gpt' }).error, /지원하지 않는/);
   assert.equal(env.api('setApiKey', { apiKey: '' }).ai, false);
 });

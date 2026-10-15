@@ -17,7 +17,7 @@ var TX_SHEET = '지출';
 var META_SHEET = '설정';
 var TX_HEADERS = ['id', 'date', 'amount', 'memo', 'categoryId', 'categoryName', 'method', 'source', 'raw', 'createdAt', 'classifiedAt', 'kind', 'accountId'];
 var DEFAULT_MODEL = 'claude-opus-5-5';
-var MODELS = ['claude-opus-5-5', 'claude-haiku-4-5'];
+var MODELS = ['claude-opus-5-5', 'claude-haiku-5-5'];
 var TZ = 'Asia/Seoul';
 var AI_BATCH = 40;
 
@@ -339,8 +339,8 @@ function callClaude_(req) {
     output_config: { format: { type: 'json_schema', schema: req.schema } },
   };
   var headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' };
-  // 분류는 간단한 작업이라 생각을 짧게 (effort 를 지원하지 않는 Haiku 4.5 는 제외)
-  if (!/haiku/.test(model)) body.output_config.effort = 'low';
+  // 분류는 간단한 작업이라 생각을 짧게 (effort 를 지원하지 않는 예전 Haiku 4.5 는 제외)
+  if (!/^claude-haiku-4/.test(model)) body.output_config.effort = 'low';
   // 안전 필터에 걸려 거절되면 다른 모델로 자동 재시도
   if (/^claude-(opus-5|sonnet-5-5|fable-5-1)/.test(model)) {
     body.fallbacks = 'default';

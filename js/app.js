@@ -434,14 +434,32 @@
   // 페이 머니로 옮긴 돈은 있는데 그 기간 페이 결제내역이 없으면 가져오라고 알린다
   function renderPayBox() {
     const box = $('#pay-box');
+    const doubles = L.payDoubleCounts(S());
     const missing = L.payFlows(S(), currentPeriod).filter((f) => f.topup > 0 && !f.count);
-    box.innerHTML = missing.map((f) => `
+    box.innerHTML = doubles.map((d, i) => `
+      <div class="card note-card warn-card">
+        <b>${esc(d.payName)} 출금 ${d.txs.length}건${d.total ? `(${won(d.total)})` : ''}이 결제내역과 이중으로 계산되고 있어요.</b>
+        <p class="small">은행에서 ${esc(d.payName)}(으)로 빠져나간 돈은 페이 머니 충전이고, 실제 지출은 ${esc(d.payName)} 결제내역으로 이미 세고 있어요. 충전 쪽을 '내 계좌 이동'으로 바꾸면 중복이 없어집니다.${d.needsType ? ` ('${esc(d.account.name)}'의 종류도 간편결제 머니로 바꿉니다)` : ''}</p>
+        <button class="primary-btn" data-fix="${i}">충전으로 바꿔서 중복 없애기</button>
+      </div>`).join('') + missing.map((f) => `
       <div class="card note-card warn-card">
         <b>${esc(accountName(f.account.id))}로 옮긴 돈 ${won(f.topup)}의 결제내역이 아직 없어요.</b>
         <p class="small">은행 내역의 ${esc(f.account.payName || f.account.name)} 출금은 충전이라 지출로 세지 않아요. 실제로 무엇을 샀는지는 ${esc(f.account.payName || f.account.name)} 결제내역을 가져와야 지출에 들어가요.</p>
         <button class="ghost-btn" data-goto="add">결제내역 가져오기</button>
       </div>`).join('');
     box.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => showPage('add')));
+    box.querySelectorAll('[data-fix]').forEach((b) => b.addEventListener('click', quiet(async () => {
+      const d = doubles[Number(b.dataset.fix)];
+      if (d.needsType) {
+        Object.assign(d.account, { type: 'pay', payName: d.payName, isSavings: false });
+        store.saveMeta();
+      }
+      await busy(`정리하는 중… (${d.txs.length}건)`, async () => {
+        for (const t of d.txs) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
+      });
+      toast(`${d.txs.length}건을 충전(내 계좌 이동)으로 바꿨어요. 이제 지출은 결제내역으로만 셉니다.`);
+      render();
+    })));
   }
 
   function renderHome() {

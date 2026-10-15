@@ -455,3 +455,26 @@ test('카카오페이 결제내역: 사용처 칸을 사용처로 읽는다', ()
     ['카카오페이머니 충전', 'transfer', 30000],
   ]);
 });
+
+test('이중 계산 찾기: 페이를 은행 계좌로 등록했어도 찾아낸다', () => {
+  const st = L.normalizeState({
+    accounts: [
+      { id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' },
+      { id: 'kp', name: '카카오페이', type: 'bank' },
+    ],
+    transactions: [
+      { id: '1', date: '2026-10-11', amount: 50000, memo: '카카오페이', kind: 'expense', accountId: 'kb' },
+      { id: '2', date: '2026-10-11', amount: 4500, memo: '스타벅스', kind: 'expense', accountId: 'kp' },
+      { id: '3', date: '2026-10-11', amount: 9000, memo: '김밥천국', kind: 'expense', accountId: 'kb' },
+    ],
+  });
+  const d = L.payDoubleCounts(st);
+  assert.equal(d.length, 1);
+  assert.equal(d[0].needsType, true);
+  assert.deepEqual(d[0].txs.map((t) => t.id), ['1']);
+  assert.equal(d[0].total, 50000);
+  // 고친 뒤에는 없음
+  st.accounts[1].type = 'pay';
+  st.transactions[0].kind = 'transfer';
+  assert.deepEqual(L.payDoubleCounts(st), []);
+});

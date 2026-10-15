@@ -429,6 +429,21 @@
     return true;
   }
 
+  // 이중 계산 찾기: 페이 결제내역도 들어와 있는데, 다른 계좌의 같은 이름 출금이 아직 지출(또는 입금)로 남은 것.
+  // 페이를 '은행 계좌'로 등록해 둔 경우(이름에 페이/pay, 그 계정에 지출이 있음)도 찾아서 종류를 바꾸라고 알려 준다.
+  function payDoubleCounts(state) {
+    const out = [];
+    for (const a of state.accounts) {
+      const looksPay = a.type !== 'card' && /페이|pay/i.test(a.name) &&
+        state.transactions.some((t) => t.accountId === a.id && kindOf(t) === 'expense');
+      if (a.type !== 'pay' && !looksPay) continue;
+      const pseudo = { ...a, type: 'pay', payName: a.payName || a.name };
+      const txs = state.transactions.filter((t) => applyPayRules({ ...t }, [pseudo]));
+      if (txs.length) out.push({ account: a, payName: pseudo.payName, needsType: a.type !== 'pay', txs, total: txs.reduce((s, t) => s + (kindOf(t) === 'expense' ? t.amount : 0), 0) });
+    }
+    return out;
+  }
+
   // 기간별 페이 머니 흐름: 충전(다른 계좌에서 옮긴 돈)과 페이 결제내역
   function payFlows(state, period) {
     const txs = txsInPeriod(state, period);
@@ -1086,6 +1101,7 @@
     payAccountForMemo,
     applyPayRules,
     payFlows,
+    payDoubleCounts,
     txPeriod,
     txsInPeriod,
     shiftPeriod,

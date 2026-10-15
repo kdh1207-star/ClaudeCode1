@@ -1729,7 +1729,7 @@
     });
   }
 
-  // 배경: 작고 불규칙한 픽셀 잡티·반짝임·긁힘을 화면 전체에 흩뿌린다 (매번 같은 무늬가 나오도록 고정 씨앗)
+  // 배경: Y2K 4갈래 반짝임과 작은 별점을 흩뿌린다 (매번 같은 무늬가 나오도록 고정 씨앗)
   function drawBackdrop() {
     let cv = document.getElementById('backdrop');
     if (!cv) {
@@ -1750,71 +1750,37 @@
     let seed = 20261015;
     const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
     const area = (w * h) / (390 * 844);
-    const white = (a) => `rgba(236, 242, 252, ${a})`;
+    const tints = ['236, 244, 255', '143, 227, 255', '201, 168, 255', '255, 158, 224'];
 
-    // 픽셀 잡티: 1~3px 점과 짧은 세로 대시
-    for (let i = 0; i < 140 * area; i++) {
-      const x = rnd() * w;
-      const y = rnd() * h;
-      g.fillStyle = white(0.12 + rnd() * 0.45);
-      if (rnd() < 0.3) g.fillRect(Math.round(x), Math.round(y), 1, 3 + Math.round(rnd() * 9));
-      else { const s = 1 + Math.round(rnd() * 2); g.fillRect(Math.round(x), Math.round(y), s, s); }
+    // 작은 별점
+    for (let i = 0; i < 90 * area; i++) {
+      const s = rnd() < 0.85 ? 1 : 2;
+      g.fillStyle = `rgba(${tints[Math.floor(rnd() * tints.length)]}, ${0.2 + rnd() * 0.55})`;
+      g.fillRect(Math.round(rnd() * w), Math.round(rnd() * h), s, s);
     }
-    // 픽셀 뭉치: 작은 사각형 몇 개가 모인 덩어리
-    for (let i = 0; i < 10 * area; i++) {
+    // 4갈래 반짝임: 작은 것 위주, 가끔 큰 것
+    for (let i = 0; i < 22 * area; i++) {
       const x = rnd() * w;
       const y = rnd() * h;
-      for (let k = 0; k < 4 + rnd() * 8; k++) {
-        g.fillStyle = white(0.15 + rnd() * 0.35);
-        g.fillRect(Math.round(x + (rnd() - 0.5) * 16), Math.round(y + (rnd() - 0.5) * 24), 1 + Math.round(rnd() * 2), 1 + Math.round(rnd() * 3));
-      }
-    }
-    // 긁힘: 가늘고 살짝 기운 선
-    g.lineWidth = 0.6;
-    for (let i = 0; i < 14 * area; i++) {
-      const x = rnd() * w;
-      const y = rnd() * h;
-      const len = 20 + rnd() * 140;
-      const ang = (rnd() < 0.6 ? Math.PI / 2 : 0) + (rnd() - 0.5) * 0.5;
-      g.strokeStyle = white(0.05 + rnd() * 0.12);
+      const big = rnd() < 0.15;
+      const r = big ? 9 + rnd() * 9 : 3 + rnd() * 5;
+      const tint = tints[Math.floor(rnd() * tints.length)];
+      const a = 0.45 + rnd() * 0.5;
+      const glow = g.createRadialGradient(x, y, 0, x, y, r * 1.6);
+      glow.addColorStop(0, `rgba(${tint}, ${a * 0.45})`);
+      glow.addColorStop(1, `rgba(${tint}, 0)`);
+      g.fillStyle = glow;
       g.beginPath();
-      g.moveTo(x, y);
-      g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
-      g.stroke();
-    }
-    // 반짝임: 크기가 제각각인 4갈래 빛 (작은 것 위주)
-    for (let i = 0; i < 26 * area; i++) {
-      const x = rnd() * w;
-      const y = rnd() * h;
-      const r = rnd() < 0.8 ? 2 + rnd() * 4 : 6 + rnd() * 7;
-      const a = 0.35 + rnd() * 0.6;
-      const grd = g.createRadialGradient(x, y, 0, x, y, r * 1.8);
-      grd.addColorStop(0, white(a * 0.5));
-      grd.addColorStop(1, white(0));
-      g.fillStyle = grd;
-      g.beginPath();
-      g.arc(x, y, r * 1.8, 0, Math.PI * 2);
+      g.arc(x, y, r * 1.6, 0, Math.PI * 2);
       g.fill();
-      g.fillStyle = white(a);
+      g.fillStyle = `rgba(255, 255, 255, ${a})`;
       g.beginPath();
       g.moveTo(x, y - r);
-      g.quadraticCurveTo(x, y, x + r * 0.7, y);
+      g.quadraticCurveTo(x, y, x + r * 0.62, y);
       g.quadraticCurveTo(x, y, x, y + r);
-      g.quadraticCurveTo(x, y, x - r * 0.7, y);
+      g.quadraticCurveTo(x, y, x - r * 0.62, y);
       g.quadraticCurveTo(x, y, x, y - r);
       g.fill();
-    }
-    // 작은 + 표시
-    g.lineWidth = 1;
-    for (let i = 0; i < 8 * area; i++) {
-      const x = Math.round(rnd() * w) + 0.5;
-      const y = Math.round(rnd() * h) + 0.5;
-      const r = 2 + Math.round(rnd() * 3);
-      g.strokeStyle = white(0.2 + rnd() * 0.3);
-      g.beginPath();
-      g.moveTo(x - r, y); g.lineTo(x + r, y);
-      g.moveTo(x, y - r); g.lineTo(x, y + r);
-      g.stroke();
     }
   }
 

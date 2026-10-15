@@ -8,11 +8,13 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
-function buildHtml() {
+// pack: 기능 코드를 base64 로 감싸 넣는다 (구글 웹 앱용). 전달 중에 글자가 바뀌어도 코드가 깨지지 않는다.
+function buildHtml({ pack = false } = {}) {
   let html = read('index.html');
   html = html.replace(/<link rel="stylesheet" href="([^"]+)">/g, (_, href) => `<style>\n${read(href)}</style>`);
   html = html.replace(/<script src="([^"]+)"><\/script>/g, (_, src) => {
     const js = read(src);
+    if (pack) return `<script>__budgetRun(${JSON.stringify(src)}, "${Buffer.from(js, 'utf8').toString('base64')}");</script>`;
     if (js.includes('</script')) throw new Error(`${src} 에 </script 가 있어 인라인할 수 없습니다.`);
     return `<script>\n${js}</script>`;
   });
@@ -20,7 +22,7 @@ function buildHtml() {
 }
 
 // 구글 Apps Script 에 붙여넣을 파일 하나: 공통 로직 + 서버 + 화면(문자열)
-function buildCodeGs(html = buildHtml()) {
+function buildCodeGs(html = buildHtml({ pack: true })) {
   return [
     '// 자동 생성 파일 (npm run build). 직접 고치지 말고 js/logic.js, server/server.js 를 고치세요.',
     '// 구글 Apps Script 의 Code.gs 에 이 파일 전체를 붙여넣으면 됩니다.',
@@ -33,10 +35,9 @@ function buildCodeGs(html = buildHtml()) {
 }
 
 function outputs() {
-  const html = buildHtml();
   return {
-    'budget-app.html': html,
-    'apps-script/Code.gs': buildCodeGs(html),
+    'budget-app.html': buildHtml(),
+    'apps-script/Code.gs': buildCodeGs(),
   };
 }
 

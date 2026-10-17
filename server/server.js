@@ -166,11 +166,18 @@ function receiveMessage_(text, source) {
         parsed.categoryId = null;
       }
     }
-    // 은행 문자에 '카카오페이' 등으로 찍힌 출금은 페이 머니 충전 → 지출이 아니라 내 계좌 이체
-    if (BL.applyPayRules(parsed, meta.accounts)) method = null;
+    // 은행 문자에 '카카오페이' 등으로 찍힌 출금은 페이 충전 → 결제내역을 가져올 때까지 '정산 전' 미분류 지출.
+    // 이미 그 날짜의 페이 결제내역이 있으면 내 계좌 이체
+    var existing = readTransactions_();
+    if (BL.applyPayRules(parsed, meta.accounts)) method = parsed.method;
+    var payFix = BL.payPatchFor(parsed, meta.accounts, BL.payCoverage({ accounts: meta.accounts, transactions: existing }));
+    if (payFix) {
+      for (var pk in payFix) parsed[pk] = payFix[pk];
+      method = parsed.method;
+    }
 
     // 지출이면: 사용자가 직접 분류해 둔 가맹점을 우선하고, AI 결과가 없으면 키워드로
-    if (parsed.kind === 'expense') {
+    if (parsed.kind === 'expense' && !BL.isPayPending(parsed)) {
       var planCats = BL.planFor(meta, BL.getPeriod(parsed.date, meta.settings.startDay).key).categories;
       var local = BL.classifyLocal(parsed.memo, planCats, meta.merchantMap);
       if (local.method === 'learned' || (!parsed.categoryId && local.categoryId)) {
@@ -182,18 +189,14 @@ function receiveMessage_(text, source) {
     // 알림에 잔액이 있으면 계좌 잔액 갱신
     if (parsed.accountId && typeof parsed.balance === 'number') {
       meta.accounts.forEach(function (a) {
-        if (a.id === parsed.accountId) {
-          a.balance = parsed.balance;
-          a.balanceAt = nowISO_();
-        }
+        if (a.id === parsed.accountId) BL.recordBalance(a, parsed.balance, nowISO_(), today);
       });
       saveMeta_(meta, true);
     }
 
-    var existing = readTransactions_();
     if (BL.isDuplicate(parsed, existing)) return { ok: true, saved: false, reason: 'duplicate' };
 
-    var tx = newTx_(parsed, parsed.categoryId ? method : null, source, text);
+    var tx = newTx_(parsed, parsed.categoryId || BL.isPayPending(parsed) ? method : null, source, text);
     appendTxRows_([tx], meta);
     return { ok: true, saved: true, tx: tx, aiError: ai.ok ? null : ai.error };
   });
@@ -217,7 +220,8 @@ function addTransactions_(items) {
     });
   }
   var txs = items.map(function (it) {
-    return newTx_(it, it.categoryId ? it.method || 'manual' : null, it.source || 'app', it.raw || '');
+    var method = it.categoryId ? it.method || 'manual' : it.method === BL.PAY_PENDING ? it.method : null;
+    return newTx_(it, method, it.source || 'app', it.raw || '');
   });
   appendTxRows_(txs, meta);
   return txs;
@@ -272,9 +276,14 @@ function reclassify_(start, end, onlyUnclassified) {
   if (!targets.length) return [];
   var now = nowISO_();
   // 간편결제 머니(카카오페이 등) 충전 출금은 항목을 고르지 않고 내 계좌 이체로 바꾼다
-  var moved = targets.filter(function (t) { return BL.applyPayRules(t, meta.accounts); });
-  moved.forEach(function (t) { t.classifiedAt = now; });
-  var rest = targets.filter(function (t) { return BL.kindOf(t) === 'expense'; });
+  var coverage = BL.payCoverage({ accounts: meta.accounts, transactions: txs });
+  targets.forEach(function (t) {
+    BL.applyPayRules(t, meta.accounts);
+    var fix = BL.payPatchFor(t, meta.accounts, coverage);
+    if (fix) for (var k in fix) t[k] = fix[k];
+    t.classifiedAt = now;
+  });
+  var rest = targets.filter(function (t) { return BL.kindOf(t) === 'expense' && !BL.isPayPending(t); });
   var res = rest.length ? classifyItems_(rest, meta) : [];
   rest.forEach(function (t, i) {
     t.categoryId = res[i].categoryId;
@@ -441,6 +450,12 @@ function saveMeta_(meta, fromServer) {
       if (cur && cur.balanceAt > a.balanceAt) {
         a.balance = cur.balance;
         a.balanceAt = cur.balanceAt;
+      }
+      // 잔액 기록은 양쪽을 합친다
+      if (cur) {
+        var byDate = {};
+        cur.balanceLog.concat(a.balanceLog).forEach(function (e) { byDate[e.date] = e; });
+        a.balanceLog = Object.keys(byDate).sort().slice(-60).map(function (d) { return byDate[d]; });
       }
     });
   }

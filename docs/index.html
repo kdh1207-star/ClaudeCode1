@@ -201,6 +201,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .card-head h2 { margin: 0; }
 .note-card { background: var(--surface-2); box-shadow: none; }
 .note-card p { margin: 4px 0 8px; }
+.pay-bal { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.pay-bal label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 130px; }
+.pay-bal input { width: 100%; }
 .warn-card { background: var(--warning-track); border-color: transparent; }
 .card .sub-head { margin-top: 18px; }
 
@@ -1465,7 +1468,7 @@ p.hint-collapsed { display: none; }
             <div class="row-actions">
               <button id="reclassify-unclassified" class="ghost-btn small-btn">미분류만 다시 분류</button>
               <button id="reclassify-all" class="ghost-btn small-btn">이 기간 전체 다시 분류</button>
-              <button id="pay-topups" class="ghost-btn small-btn">카카오페이 출금 → 내 계좌 이체</button>
+              <button id="pay-topups" class="ghost-btn small-btn">카카오페이 정산 맞추기</button>
             </div>
             <div id="list-total" class="list-total"></div>
             <div id="tx-list"></div>
@@ -1636,7 +1639,7 @@ p.hint-collapsed { display: none; }
               <div class="card" id="set-data">
                 <h2 data-kicker="DATA">데이터</h2>
                 <p id="data-note" class="muted small"></p>
-                <p class="muted small">앱 버전 <code id="build-id">ad6e421</code></p>
+                <p class="muted small">앱 버전 <code id="build-id">d4e4577</code></p>
                 <div class="row-actions">
                   <button id="export-btn" class="ghost-btn">백업 내보내기(JSON)</button>
                   <label class="ghost-btn file-btn">백업 불러오기<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -1844,7 +1847,11 @@ p.hint-collapsed { display: none; }
         unclassifiedCount += 1;
       }
     }
-    const totalSpent = txs.reduce((s, t) => s + t.amount, 0);
+    // 정산 전 페이 지출을 잔액으로 보정한 만큼 (미분류에 더한다)
+    const pay = payFlows(state, period);
+    const payAdjust = pay.reduce((s, f) => s + f.adjust, 0);
+    unclassified += payAdjust;
+    const totalSpent = txs.reduce((s, t) => s + t.amount, 0) + payAdjust;
     const incomeReceived = all.filter((t) => kindOf(t) === 'income').reduce((s, t) => s + t.amount, 0);
 
     const rows = plan.categories.map((c) => {
@@ -1875,6 +1882,8 @@ p.hint-collapsed { display: none; }
       rows,
       unclassified,
       unclassifiedCount,
+      pay,
+      payAdjust,
       totalSpent,
       incomeReceived,
       remaining: (hasIncome ? income : 0) - totalSpent,
@@ -2086,62 +2095,154 @@ p.hint-collapsed { display: none; }
     return null;
   }
 
-  // 다른 계좌의 내역인데 사용처가 페이 이름이면 '내 계좌 이체'(충전·환급)으로 바꾼다. 바꿨으면 true
+  // 은행 문자로는 페이 결제가 안 보인다. 그래서 다른 계좌에서 페이로 빠져나간 돈은
+  // 일단 '정산 전' 지출(미분류)로 세고, 페이 결제내역을 가져와 덮는 기간에 들어오면 '내 계좌 이체'로 바꾼다.
+  const PAY_PENDING = 'pay-pending';
+
+  function isPayPending(t) {
+    return kindOf(t) === 'expense' && t.method === PAY_PENDING && !t.categoryId;
+  }
+
+  // 다른 계좌의 페이 출금(충전)이면 그 페이 계정
+  function payTopupAccount(t, accounts) {
+    const acc = payAccountForMemo(t.memo, accounts);
+    return acc && t.accountId !== acc.id ? acc : null;
+  }
+
+  // 원문으로 보아 페이에서 돌려받은 돈(입금)인지
+  function looksLikeDeposit(t) {
+    const raw = String(t.raw || '');
+    return /입금|환불|환급|받았/.test(raw) && !/출금|결제|승인/.test(raw);
+  }
+
+  // 새로 들어온 내역에 적용: 페이 출금은 '정산 전' 미분류 지출, 페이에서 돌려받은 돈은 내 계좌 이체. 바꿨으면 true
   function applyPayRules(item, accounts) {
-    if (kindOf(item) === 'transfer') return false;
-    const acc = payAccountForMemo(item.memo, accounts);
-    if (!acc || item.accountId === acc.id) return false;
-    item.kind = 'transfer';
-    item.categoryId = null;
-    item.method = null;
+    if (!payTopupAccount(item, accounts)) return false;
+    const k = kindOf(item);
+    if (k === 'income') {
+      Object.assign(item, { kind: 'transfer', categoryId: null, method: null });
+      return true;
+    }
+    if (k !== 'expense' || isPayPending(item)) return false;
+    Object.assign(item, { categoryId: null, method: PAY_PENDING });
     return true;
   }
 
-  // 이중 계산 찾기: 페이 결제내역도 들어와 있는데, 다른 계좌의 같은 이름 출금이 아직 지출(또는 입금)로 남은 것.
-  // 페이를 '은행 계좌'로 등록해 둔 경우(이름에 페이/pay, 그 계정에 지출이 있음)도 찾아서 종류를 바꾸라고 알려 준다.
-  function payDoubleCounts(state) {
+  // 페이 결제내역이 덮는 날짜 범위: { [payId]: { start, end } }
+  function payCoverage(state) {
+    const out = {};
+    for (const t of state.transactions || []) {
+      if (!t.accountId || !t.date) continue;
+      const c = out[t.accountId];
+      if (!c) out[t.accountId] = { start: t.date, end: t.date };
+      else {
+        if (t.date < c.start) c.start = t.date;
+        if (t.date > c.end) c.end = t.date;
+      }
+    }
+    const pays = {};
+    for (const a of state.accounts || []) if (a.type === 'pay' && out[a.id]) pays[a.id] = out[a.id];
+    return pays;
+  }
+
+  // 내역 하나를 페이 기준에 맞추는 데 필요한 변경 (없으면 null)
+  function payPatchFor(t, accounts, coverage) {
+    const pays = (accounts || []).filter((a) => a.type === 'pay');
+    const acc = payTopupAccount(t, pays);
+    if (!acc) return null;
+    const k = kindOf(t);
+    const c = coverage[acc.id];
+    const covered = !!c && t.date >= c.start && t.date <= c.end;
+    const transfer = { kind: 'transfer', categoryId: null, method: null };
+    if (covered || k === 'income') return k === 'transfer' ? null : transfer;
+    if (k === 'transfer') return looksLikeDeposit(t) ? null : { kind: 'expense', categoryId: null, method: PAY_PENDING };
+    // 결제내역이 없는 기간의 출금: 직접 고른 것만 그대로, 나머지는 정산 전으로
+    if (isPayPending(t) || t.method === 'manual') return null;
+    return { categoryId: null, method: PAY_PENDING };
+  }
+
+  // 페이 정산 맞추기: [{ tx, patch, account }]
+  function payReconcile(state, onlyAccountId) {
+    const coverage = payCoverage(state);
+    const pays = (state.accounts || []).filter((a) => a.type === 'pay' && (!onlyAccountId || a.id === onlyAccountId));
     const out = [];
-    for (const a of state.accounts) {
-      const looksPay = a.type !== 'card' && /페이|pay/i.test(a.name) &&
-        state.transactions.some((t) => t.accountId === a.id && kindOf(t) === 'expense');
-      if (a.type !== 'pay' && !looksPay) continue;
-      const pseudo = { ...a, type: 'pay', payName: a.payName || a.name };
-      const txs = state.transactions.filter((t) => applyPayRules({ ...t }, [pseudo]));
-      if (txs.length) out.push({ account: a, payName: pseudo.payName, needsType: a.type !== 'pay', txs, total: txs.reduce((s, t) => s + (kindOf(t) === 'expense' ? t.amount : 0), 0) });
+    for (const t of state.transactions) {
+      const patch = payPatchFor(t, pays, coverage);
+      if (patch) out.push({ tx: t, patch, account: payTopupAccount(t, pays) });
     }
     return out;
   }
 
-  // '카카오페이 출금 정리' 버튼용: 정리할 페이 이름과 계정, 바꿀 내역.
-  // 간편결제 머니로 등록한 계정이 없으면 이름이 카카오페이인 계정, 그것도 없으면 '카카오페이' 이름만으로 찾는다.
+  // 페이를 '은행 계좌'로 잘못 등록한 것 찾기 (이름에 페이/pay, 그 계정에 지출이 있음)
+  function payMisregistered(state) {
+    return state.accounts.filter((a) => a.type === 'bank' && /페이|pay/i.test(a.name) &&
+      state.transactions.some((t) => t.accountId === a.id && kindOf(t) === 'expense'));
+  }
+
+  // '카카오페이 정산 맞추기' 버튼용: 정리할 페이 계정 (없으면 카카오페이 이름의 계정, 그것도 없으면 null)
   function payTopupCandidates(state) {
     const acc = state.accounts.find((a) => a.type === 'pay') ||
       state.accounts.find((a) => a.type !== 'card' && /카카오\s*페이/i.test(a.name)) || null;
     const payName = (acc && (acc.payName || acc.name)) || '카카오페이';
     const pseudo = { ...(acc || { id: '__none', name: payName }), type: 'pay', payName };
-    const txs = state.transactions.filter((t) => applyPayRules({ ...t }, [pseudo]));
+    const others = state.accounts.filter((a) => a.id !== pseudo.id);
+    const txs = payReconcile({ ...state, accounts: [...others, pseudo] }, pseudo.id).map((r) => r.tx);
     return { account: acc, payName, needsType: !!acc && acc.type !== 'pay', txs };
   }
 
-  // 기간별 페이 머니 흐름: 충전(다른 계좌에서 옮긴 돈)과 페이 결제내역
+  // 잔액 기록: 현재 잔액과 날짜별 기록(최근 60개)
+  function recordBalance(acc, amount, atISO, dateISO) {
+    acc.balance = amount;
+    acc.balanceAt = atISO;
+    if (typeof amount !== 'number' || !dateISO) return;
+    const log = (acc.balanceLog || []).filter((e) => e.date !== dateISO);
+    log.push({ date: dateISO, amount });
+    log.sort((a, b) => (a.date < b.date ? -1 : 1));
+    acc.balanceLog = log.slice(-60);
+  }
+
+  // 기간별 페이 흐름과 '정산 전' 추정.
+  // 정산 전 지출 = 결제내역 없이 페이로 옮긴 돈. 기준 잔액과 지금 잔액이 있으면 아직 안 쓴 만큼(잔액 증가분)을 뺀다.
   function payFlows(state, period) {
     const txs = txsInPeriod(state, period);
-    return state.accounts.filter((a) => a.type === 'pay').map((acc) => {
+    const coverage = payCoverage(state);
+    return (state.accounts || []).filter((a) => a.type === 'pay').map((acc) => {
       let topup = 0;
       let spent = 0;
       let count = 0;
+      let pending = 0;
+      let pendingCount = 0;
+      const pendingTxs = [];
       for (const t of txs) {
-        const k = kindOf(t);
         if (t.accountId === acc.id) {
-          if (k === 'expense') {
+          if (kindOf(t) === 'expense') {
             spent += t.amount;
             count += 1;
           }
-        } else if (k === 'transfer' && payAccountForMemo(t.memo, [acc])) {
-          topup += t.amount;
+          continue;
+        }
+        if (!payTopupAccount(t, [acc])) continue;
+        const k = kindOf(t);
+        if (k === 'transfer' || isPayPending(t)) topup += t.amount;
+        if (isPayPending(t)) {
+          pending += t.amount;
+          pendingCount += 1;
+          pendingTxs.push(t);
         }
       }
-      return { account: acc, topup, spent, count };
+      // 기준일: 기간 시작과 결제내역 끝 다음날 중 늦은 날
+      const c = coverage[acc.id];
+      let from = period.start;
+      if (c && c.end >= from) from = addDays(c.end, 1);
+      const log = acc.balanceLog || [];
+      const base = log.filter((e) => e.date < from).pop() || null;
+      const now = log.filter((e) => e.date >= from && e.date <= period.end).pop() || null;
+      let adjust = 0;
+      if (pendingCount && base && now) {
+        const inWindow = pendingTxs.filter((t) => t.date >= from && t.date <= now.date).reduce((s, t) => s + t.amount, 0);
+        adjust = Math.max(-inWindow, -(now.amount - base.amount));
+      }
+      return { account: acc, topup, spent, count, pending, pendingCount, from, base, now, adjust, estimate: pending + adjust };
     });
   }
 
@@ -2756,6 +2857,9 @@ p.hint-collapsed { display: none; }
       isSavings: !!a.isSavings,
       balance: typeof a.balance === 'number' ? a.balance : null,
       balanceAt: String(a.balanceAt || ''),
+      balanceLog: (Array.isArray(a.balanceLog) ? a.balanceLog : [])
+        .filter((e) => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && typeof e.amount === 'number')
+        .map((e) => ({ date: e.date, amount: e.amount })),
     }));
 
     return {
@@ -2778,9 +2882,15 @@ p.hint-collapsed { display: none; }
     daysInMonth,
     getPeriod,
     payAccountForMemo,
+    PAY_PENDING,
+    isPayPending,
     applyPayRules,
+    payCoverage,
+    payPatchFor,
+    payReconcile,
+    payMisregistered,
+    recordBalance,
     payFlows,
-    payDoubleCounts,
     payTopupCandidates,
     txPeriod,
     txsInPeriod,
@@ -3294,7 +3404,7 @@ p.hint-collapsed { display: none; }
             amount: it.amount,
             memo: it.memo,
             categoryId,
-            method: categoryId ? it.method || 'manual' : null,
+            method: categoryId ? it.method || 'manual' : expense && it.method === L.PAY_PENDING ? it.method : null,
             source: it.source || 'app',
             raw: it.raw || '',
             createdAt: now,
@@ -3349,8 +3459,12 @@ p.hint-collapsed { display: none; }
       });
       const now = nowISO();
       // 간편결제 머니 충전 출금은 항목 대신 내 계좌 이체로
-      targets.filter((t) => L.applyPayRules(t, store.state.accounts)).forEach((t) => Object.assign(t, { classifiedAt: now }));
-      const rest = targets.filter((t) => L.kindOf(t) === 'expense');
+      const coverage = L.payCoverage(store.state);
+      targets.forEach((t) => {
+        L.applyPayRules(t, store.state.accounts);
+        Object.assign(t, L.payPatchFor(t, store.state.accounts, coverage), { classifiedAt: now });
+      });
+      const rest = targets.filter((t) => L.kindOf(t) === 'expense' && !L.isPayPending(t));
       const res = rest.length ? await store.classify(rest) : [];
       rest.forEach((t, i) => Object.assign(t, res[i], { classifiedAt: now }));
       saveLocal();
@@ -3567,7 +3681,7 @@ p.hint-collapsed { display: none; }
       .join('');
   }
 
-  const METHOD_LABEL = { ai: 'AI', learned: '규칙', keyword: '키워드', manual: '직접' };
+  const METHOD_LABEL = { ai: 'AI', learned: '규칙', keyword: '키워드', manual: '직접', 'pay-pending': '정산 전' };
   const methodTag = (m) => (m && METHOD_LABEL[m] ? `<span class="tag">${METHOD_LABEL[m]}</span>` : '');
 
   // ---------- 페이지 이동 ----------
@@ -3867,35 +3981,88 @@ p.hint-collapsed { display: none; }
     box.querySelector('[data-goto]').addEventListener('click', () => showPage('plan'));
   }
 
-  // 페이 머니로 옮긴 돈은 있는데 그 기간 페이 결제내역이 없으면 가져오라고 알린다
+  // 페이로 옮긴 돈: 결제내역을 가져오기 전까지 '정산 전' 지출로 세고, 잔액으로 보정한다
   function renderPayBox() {
     const box = $('#pay-box');
-    const doubles = L.payDoubleCounts(S());
-    const missing = L.payFlows(S(), currentPeriod).filter((f) => f.topup > 0 && !f.count);
-    box.innerHTML = doubles.map((d, i) => `
+    const wrong = L.payMisregistered(S());
+    const fixes = L.payReconcile(S());
+    const flows = L.payFlows(S(), currentPeriod).filter((f) => f.pendingCount);
+    box.innerHTML = wrong.map((a, i) => `
       <div class="card note-card warn-card">
-        <b>${esc(d.payName)} 출금 ${d.txs.length}건${d.total ? `(${won(d.total)})` : ''}이 결제내역과 이중으로 계산되고 있어요.</b>
-        <p class="small">은행에서 ${esc(d.payName)}(으)로 빠져나간 돈은 페이 머니 충전이고, 실제 지출은 ${esc(d.payName)} 결제내역으로 이미 세고 있어요. 충전 쪽을 '내 계좌 이체'으로 바꾸면 중복이 없어집니다.${d.needsType ? ` ('${esc(d.account.name)}'의 종류도 간편결제 머니로 바꿉니다)` : ''}</p>
-        <button class="primary-btn" data-fix="${i}">충전으로 바꿔서 중복 없애기</button>
-      </div>`).join('') + missing.map((f) => `
+        <b>'${esc(a.name)}'이(가) 은행 계좌로 등록돼 있어요.</b>
+        <p class="small">간편결제 머니로 바꿔야 은행에서 페이로 옮긴 돈과 페이 결제내역이 이중으로 계산되지 않아요.</p>
+        <button class="primary-btn" data-type="${i}">간편결제 머니로 바꾸고 정산하기</button>
+      </div>`).join('') + (fixes.length ? `
       <div class="card note-card warn-card">
-        <b>${esc(accountName(f.account.id))}로 옮긴 돈 ${won(f.topup)}의 결제내역이 아직 없어요.</b>
-        <p class="small">은행 내역의 ${esc(f.account.payName || f.account.name)} 출금은 충전이라 지출로 세지 않아요. 실제로 무엇을 샀는지는 ${esc(f.account.payName || f.account.name)} 결제내역을 가져와야 지출에 들어가요.</p>
-        <button class="ghost-btn" data-goto="add">결제내역 가져오기</button>
-      </div>`).join('');
+        <b>카카오페이 정산을 맞출 내역이 ${fixes.length}건 있어요.</b>
+        <p class="small">결제내역이 있는 날짜의 페이 출금은 내 계좌 이체로, 결제내역이 없는 날짜의 출금은 '정산 전' 지출로 맞춥니다.</p>
+        <button class="primary-btn" data-settle>정산 맞추기</button>
+      </div>` : '') + flows.map((f, i) => {
+      const name = esc(f.account.payName || accountName(f.account.id));
+      const corr = f.adjust ? ` 잔액이 ${won(-f.adjust)} 늘어서 그만큼 빼고 <b>${won(f.estimate)}</b>으로 셉니다.` : '';
+      const needBase = !f.base;
+      return `
+      <div class="card note-card">
+        <b>${name} 정산 전 지출 ${won(f.pending)} · ${f.pendingCount}건</b>
+        <p class="small">페이로 옮긴 돈을 일단 미분류 지출로 셉니다.${corr} 결제내역을 가져오면 실제 사용처로 바뀌어요.</p>
+        <div class="pay-bal" data-i="${i}">
+          ${needBase ? `<label class="small">기준 잔액 (${esc(fmtDate(L.addDays(f.from, -1)))}) <input class="pb-base" inputmode="numeric" placeholder="모르면 비워 두기"></label>` : ''}
+          <label class="small">지금 잔액 <input class="pb-now" inputmode="numeric" value="${typeof f.account.balance === 'number' ? won(f.account.balance).replace(/[^\d,-]/g, '') : ''}"></label>
+          <button class="ghost-btn small-btn pb-save">잔액으로 보정</button>
+          <button class="ghost-btn small-btn" data-goto="add">결제내역 가져오기</button>
+        </div>
+      </div>`;
+    }).join('');
     box.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => showPage('add')));
-    box.querySelectorAll('[data-fix]').forEach((b) => b.addEventListener('click', quiet(async () => {
-      const d = doubles[Number(b.dataset.fix)];
-      if (d.needsType) {
-        Object.assign(d.account, { type: 'pay', payName: d.payName, isSavings: false });
-        store.saveMeta();
-      }
-      await busy(`정리하는 중… (${d.txs.length}건)`, async () => {
-        for (const t of d.txs) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
-      });
-      toast(`${d.txs.length}건을 충전(내 계좌 이체)으로 바꿨어요. 이제 지출은 결제내역으로만 셉니다.`);
-      render();
+    box.querySelectorAll('[data-type]').forEach((b) => b.addEventListener('click', quiet(async () => {
+      const a = wrong[Number(b.dataset.type)];
+      Object.assign(a, { type: 'pay', payName: a.payName || a.name, isSavings: false });
+      store.saveMeta();
+      await settlePay({ ask: false });
     })));
+    const settle = box.querySelector('[data-settle]');
+    if (settle) settle.addEventListener('click', quiet(() => settlePay({ ask: false })));
+    box.querySelectorAll('.pay-bal').forEach((row) => {
+      formatOnBlur(row.querySelector('.pb-now'));
+      if (row.querySelector('.pb-base')) formatOnBlur(row.querySelector('.pb-base'));
+      row.querySelector('.pb-save').addEventListener('click', () => {
+        const f = flows[Number(row.dataset.i)];
+        const now = parseAmountInput(row.querySelector('.pb-now').value);
+        if (now === null) return toast('지금 잔액을 숫자로 입력해 주세요.');
+        const baseEl = row.querySelector('.pb-base');
+        const base = baseEl && baseEl.value.trim() ? parseAmountInput(baseEl.value) : null;
+        if (base !== null) {
+          const keep = { balance: f.account.balance, balanceAt: f.account.balanceAt };
+          L.recordBalance(f.account, base, keep.balanceAt, L.addDays(f.from, -1));
+          Object.assign(f.account, keep);
+        }
+        const today = L.todayISO();
+        L.recordBalance(f.account, now, nowISO(), today > currentPeriod.end ? currentPeriod.end : today);
+        store.saveMeta();
+        if (!L.payFlows(S(), currentPeriod).find((x) => x.account.id === f.account.id).base) {
+          toast('잔액을 기록했어요. 기준 잔액이 없어서 이번엔 보정하지 않고, 다음부터는 이 잔액을 기준으로 보정해요.', 6000);
+        } else toast('잔액으로 보정했어요.');
+        render();
+      });
+    });
+  }
+
+  // 페이 출금을 결제내역에 맞춘다: 결제내역이 있는 날짜는 내 계좌 이체, 없는 날짜는 '정산 전' 지출
+  async function settlePay({ accountId = null, ask = true, quietIfNone = false } = {}) {
+    const fixes = L.payReconcile(S(), accountId);
+    if (!fixes.length) {
+      if (!quietIfNone) toast('이미 정산이 맞아요.');
+      return 0;
+    }
+    const toTransfer = fixes.filter((f) => f.patch.kind === 'transfer').length;
+    const toPending = fixes.length - toTransfer;
+    if (ask && !confirm(`카카오페이 출금 ${fixes.length}건을 맞출까요?\n· 결제내역이 있는 날짜 → 내 계좌 이체 ${toTransfer}건\n· 결제내역이 없는 날짜 → 정산 전 지출(미분류) ${toPending}건`)) return 0;
+    await busy(`정산하는 중… (${fixes.length}건)`, async () => {
+      for (const f of fixes) await store.updateTransaction(f.tx.id, f.patch);
+    });
+    toast(`카카오페이 정산: 내 계좌 이체 ${toTransfer}건, 정산 전 지출 ${toPending}건으로 맞췄어요.`, 6000);
+    render();
+    return fixes.length;
   }
 
   // 포스터 머리줄: VOL(월) ✦ 기간 ✦ D-day, 그리고 반짝이 장식
@@ -4201,24 +4368,18 @@ p.hint-collapsed { display: none; }
     render();
   }
 
-  // 모든 기간의 카카오페이 출금(충전)을 한 번에 '내 계좌 이체'로 바꾼다.
+  // 모든 기간의 카카오페이 출금을 결제내역 기준으로 한 번에 맞춘다.
   // 다음부터 자동으로 되도록 카카오페이를 간편결제 머니로 등록(없으면 새로 추가)한다.
   async function fixPayTopups() {
     const c = L.payTopupCandidates(S());
-    if (!c.txs.length) return toast(`'${c.payName}'(으)로 찍힌 지출·입금이 없어요. 이미 모두 내 계좌 이체예요.`);
-    const total = c.txs.filter((t) => L.kindOf(t) === 'expense').reduce((s, t) => s + t.amount, 0);
-    if (!confirm(`'${c.payName}'(으)로 빠져나간 내역 ${c.txs.length}건(${won(total)})을 모두 '내 계좌 이체'로 바꿀까요? 지출에서 빠지고, 카카오페이 결제내역으로만 지출을 셉니다.`)) return;
+    if (!c.txs.length && c.account && !c.needsType) return toast('이미 정산이 맞아요.');
     if (!c.account) {
-      S().accounts.push({ id: `a-${uid()}`, name: '카카오페이', type: 'pay', payName: c.payName, last4: '', isSavings: false, balance: null, balanceAt: '' });
+      S().accounts.push({ id: `a-${uid()}`, name: '카카오페이', type: 'pay', payName: c.payName, last4: '', isSavings: false, balance: null, balanceAt: '', balanceLog: [] });
     } else if (c.needsType) {
       Object.assign(c.account, { type: 'pay', payName: c.payName, isSavings: false });
     }
     store.saveMeta();
-    await busy(`바꾸는 중… (${c.txs.length}건)`, async () => {
-      for (const t of c.txs) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
-    });
-    toast(`${c.txs.length}건을 내 계좌 이체로 바꿨어요. 앞으로 들어오는 카카오페이 출금도 자동으로 내 계좌 이체가 돼요.`);
-    render();
+    await settlePay();
   }
 
   async function runReclassify(onlyUnclassified) {
@@ -4226,6 +4387,7 @@ p.hint-collapsed { display: none; }
     const n = await busy(label, () => store.reclassify(currentPeriod, onlyUnclassified));
     toast(n ? `${n}건을 다시 분류했습니다.` : '다시 분류할 지출이 없습니다.');
     render();
+    await settlePay({ ask: false, quietIfNone: true });
   }
 
   // ---------- 리포트 ----------
@@ -4303,7 +4465,7 @@ p.hint-collapsed { display: none; }
 
   function payFlowText(id) {
     const f = L.payFlows(S(), currentPeriod).find((x) => x.account.id === id);
-    return `간편결제 머니 · 이번 기간 충전 ${won(f ? f.topup : 0)} · 결제 ${won(f ? f.spent : 0)}${f && f.count ? ` (${f.count}건)` : ''}`;
+    return `간편결제 머니 · 이번 기간 충전 ${won(f ? f.topup : 0)} · 결제내역 ${won(f ? f.spent : 0)}${f && f.count ? ` (${f.count}건)` : ''}${f && f.pendingCount ? ` · 정산 전 ${won(f.estimate)}` : ''}`;
   }
 
   function renderAssets() {
@@ -4331,8 +4493,7 @@ p.hint-collapsed { display: none; }
       if (v === null) return;
       const n = parseAmountInput(v);
       if (n === null) return toast('숫자로 입력해 주세요.');
-      acc.balance = n;
-      acc.balanceAt = nowISO();
+      L.recordBalance(acc, n, nowISO(), L.todayISO());
       store.saveMeta();
       render();
     }));
@@ -4570,7 +4731,7 @@ p.hint-collapsed { display: none; }
 
   // 지출만 분류한다. 서버(AI)는 여러 번에 나눠 보낸다.
   async function classifyPreview(items) {
-    const expenses = items.filter((it) => it.kind === 'expense');
+    const expenses = items.filter((it) => it.kind === 'expense' && it.method !== L.PAY_PENDING);
     const step = store.mode === 'remote' ? 60 : expenses.length || 1;
     for (let i = 0; i < expenses.length; i += step) {
       const chunk = expenses.slice(i, i + step);
@@ -4692,8 +4853,7 @@ p.hint-collapsed { display: none; }
     if (acc && preview.latest) {
       const at = new Date(`${preview.latest.date}T${preview.latest.time || '23:59:59'}+09:00`).toISOString();
       if (!acc.balanceAt || at > acc.balanceAt) {
-        acc.balance = preview.latest.balance;
-        acc.balanceAt = at;
+        L.recordBalance(acc, preview.latest.balance, at, preview.latest.date);
         changedMeta = true;
       }
     }
@@ -4714,6 +4874,8 @@ p.hint-collapsed { display: none; }
     clearPreview();
     toast(`${chosen.length}건을 추가했습니다.`);
     jumpToDate(latestDate);
+    // 페이 결제내역이나 페이 출금이 들어왔으면 정산을 맞춘다
+    await settlePay({ ask: false, quietIfNone: true });
   }
 
   // ---------- 설정 ----------
@@ -4784,7 +4946,7 @@ p.hint-collapsed { display: none; }
           <input class="a-bal" type="text" inputmode="numeric" value="${typeof a.balance === 'number' ? a.balance.toLocaleString('ko-KR') : ''}" placeholder="${a.type === 'card' ? '—' : '현재 잔액'}" ${a.type === 'card' ? 'disabled' : ''} aria-label="잔액">
           <label class="check"><input type="checkbox" class="a-save" ${a.isSavings ? 'checked' : ''} ${a.type !== 'bank' ? 'disabled' : ''}>저축</label>
           <button class="link-btn a-del" aria-label="삭제">✕</button>
-          ${a.type === 'pay' ? `<div class="acct-note small muted">은행 내역에 '${esc(a.payName || '이름')}'(으)로 찍힌 출금은 충전으로 보고 지출에서 뺍니다. 결제내역은 붙여넣기·파일 가져오기에서 결제수단을 이 항목으로 골라 넣으세요. <button class="link a-apply">이미 기록된 내역에도 적용</button></div>` : ''}
+          ${a.type === 'pay' ? `<div class="acct-note small muted">은행 내역에 '${esc(a.payName || '이름')}'(으)로 찍힌 출금은 결제내역을 가져오기 전까지 '정산 전' 지출(미분류)로 셉니다. 결제내역을 가져오면 그 날짜의 출금은 내 계좌 이체로 바뀌고 실제 사용처로 셉니다. 결제내역은 붙여넣기·파일 가져오기에서 결제수단을 이 항목으로 골라 넣으세요. <button class="link a-apply">이미 기록된 내역 정산 맞추기</button></div>` : ''}
         </div>`).join('')
       : '<div class="empty">아직 등록한 계좌·카드가 없어요.</div>';
 
@@ -4817,19 +4979,11 @@ p.hint-collapsed { display: none; }
       });
       const apply = row.querySelector('.a-apply');
       if (apply) apply.addEventListener('click', quiet(async () => {
-        const targets = S().transactions.filter((t) => L.applyPayRules({ ...t }, [a]));
-        if (!targets.length) return toast(`'${a.payName}'(으)로 찍힌 지출·입금이 없어요.`);
-        if (!confirm(`'${a.payName}'(으)로 찍힌 내역 ${targets.length}건을 충전(내 계좌 이체)으로 바꿀까요? 지출에서 빠집니다.`)) return;
-        await busy(`정리하는 중… (${targets.length}건)`, async () => {
-          for (const t of targets) await store.updateTransaction(t.id, { kind: 'transfer', categoryId: null, method: null });
-        });
-        toast(`${targets.length}건을 충전으로 바꿨어요.`);
-        render();
+        await settlePay({ accountId: a.id });
       }));
       formatOnBlur(row.querySelector('.a-bal'));
       row.querySelector('.a-bal').addEventListener('change', (e) => {
-        a.balance = parseAmountInput(e.target.value);
-        a.balanceAt = nowISO();
+        L.recordBalance(a, parseAmountInput(e.target.value), nowISO(), L.todayISO());
         save();
       });
       row.querySelector('.a-save').addEventListener('change', (e) => {

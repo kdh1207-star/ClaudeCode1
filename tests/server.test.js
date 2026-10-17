@@ -355,12 +355,12 @@ test('앱 설정에서 Claude API 키 넣기·지우기, 모델 바꾸기', () =
   assert.equal(env.api('setApiKey', { apiKey: '' }).ai, false);
 });
 
-test('카카오페이: 은행 문자의 페이 출금은 충전(내 계좌 이동), 페이 앱 알림은 페이 머니 지출', () => {
+test('카카오페이: 은행 문자의 페이 출금은 정산 전 미분류 지출, 페이 앱 알림은 페이 머니 지출', () => {
   const env = makeEnv({
     props: { ANTHROPIC_API_KEY: 'sk' },
     claude: (body) => {
       const text = JSON.parse(body.messages[0].content).message;
-      if (/카카오뱅크/.test(text)) return msg({ kind: 'expense', date: '2026-10-09', amount: 50000, merchant: '카카오페이', account_last4: '1234', categoryId: 'c-food' });
+      if (/카카오뱅크/.test(text)) return msg({ kind: 'expense', date: '2026-10-09', amount: 50000, merchant: '카카오페이', account_last4: '1234', categoryId: 'c-food', balance: 100000 });
       return msg({ kind: 'expense', date: '2026-10-09', amount: 4500, merchant: '스타벅스', categoryId: 'c-cafe' });
     },
   });
@@ -372,9 +372,13 @@ test('카카오페이: 은행 문자의 페이 출금은 충전(내 계좌 이�
   env.api('saveMeta', { meta });
 
   const bank = env.sms('[카카오뱅크] 김*현(1234) 10/09 출금 50,000원 카카오페이 잔액 100,000원');
-  assert.equal(bank.tx.kind, 'transfer');
+  assert.equal(bank.tx.kind, 'expense');
   assert.equal(bank.tx.categoryId, null);
+  assert.equal(bank.tx.method, 'pay-pending');
   assert.equal(bank.tx.accountId, 'kb');
+  // 잔액 기록이 남는다
+  const kb = env.api('load').state.accounts.find((a) => a.id === 'kb');
+  assert.equal(JSON.stringify(kb.balanceLog.map((e) => e.amount)), '[100000]');
 
   const pay = env.sms('카카오페이 결제 완료 스타벅스 4,500원', 'secret', 'pay');
   assert.equal(pay.tx.kind, 'expense');
@@ -382,7 +386,7 @@ test('카카오페이: 은행 문자의 페이 출금은 충전(내 계좌 이�
   assert.equal(pay.tx.categoryId, 'c-cafe');
 });
 
-test('다시 분류: 등록한 간편결제 머니의 충전 출금은 내 계좌 이체로 바꾼다', () => {
+test('다시 분류: 페이 출금은 AI 에 보내지 않고 정산 전, 결제내역이 있는 날짜면 내 계좌 이체', () => {
   const env = makeEnv({
     props: { ANTHROPIC_API_KEY: 'sk' },
     claude: (body) => {
@@ -395,10 +399,19 @@ test('다시 분류: 등록한 간편결제 머니의 충전 출금은 내 계�
   env.api('saveMeta', { meta });
   env.api('addTransactions', { items: [
     { date: '2026-10-11', amount: 50000, memo: '카카오페이', categoryId: 'c-shop', method: 'ai', accountId: 'kb' },
+    { date: '2026-10-20', amount: 20000, memo: '카카오페이', categoryId: 'c-shop', method: 'ai', accountId: 'kb' },
     { date: '2026-10-11', amount: 9000, memo: '김밥천국', categoryId: null, accountId: 'kb' },
+    { date: '2026-10-11', amount: 4500, memo: '스타벅스', categoryId: 'c-food', method: 'manual', accountId: 'kp' },
   ] });
   const r = env.api('reclassify', { start: '2026-10-01', end: '2026-10-31', onlyUnclassified: false });
-  const byMemo = Object.fromEntries(r.updated.map((t) => [t.memo, [t.kind, t.categoryId]]));
-  assert.deepEqual(byMemo['카카오페이'], ['transfer', null]);
-  assert.deepEqual(byMemo['김밥천국'], ['expense', 'c-food']);
+  const byKey = Object.fromEntries(r.updated.map((t) => [t.memo + t.date, [t.kind, t.categoryId, t.method]]));
+  assert.deepEqual(byKey['카카오페이2026-10-11'], ['transfer', null, null]); // 그날 결제내역이 있음
+  assert.deepEqual(byKey['카카오페이2026-10-20'], ['expense', null, 'pay-pending']);
+  assert.deepEqual(byKey['김밥천국2026-10-11'], ['expense', 'c-food', 'ai']);
+  // 정산 전은 AI 에 보내지 않았다
+  assert.equal(r.updated.length, 3);
+  // 미분류만 다시 분류해도 정산 전은 그대로
+  const r2 = env.api('reclassify', { start: '2026-10-01', end: '2026-10-31', onlyUnclassified: true });
+  const p = r2.updated.find((t) => t.date === '2026-10-20');
+  assert.equal(p.method, 'pay-pending');
 });

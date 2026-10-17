@@ -418,28 +418,120 @@ test('기간 옮기기: 날짜는 그대로, 계산되는 기간만 바뀐다 (�
   assert.equal(L.txPeriod(st.transactions[0], 25).key, L.shiftPeriod(L.getPeriod('2026-10-09', 25), 1, 25).key);
 });
 
-test('간편결제 머니: 다른 계좌의 페이 출금은 충전, 페이 결제내역은 지출, 기간별 흐름', () => {
+test('간편결제 머니: 다른 계좌의 페이 출금은 정산 전 미분류 지출, 페이 결제내역은 지출, 기간별 흐름', () => {
   const accounts = [
     { id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' },
     { id: 'kp', name: '카카오페이', type: 'pay', payName: '카카오페이' },
   ];
-  const topup = { date: '2026-10-11', amount: 50000, memo: '카카오페이 충전', kind: 'expense', categoryId: 'c-food', accountId: 'kb' };
+  const topup = { date: '2026-10-11', amount: 50000, memo: '카카오페이 충전', kind: 'expense', categoryId: 'c-food', method: 'ai', accountId: 'kb' };
   assert.equal(L.applyPayRules(topup, accounts), true);
-  assert.deepEqual([topup.kind, topup.categoryId], ['transfer', null]);
-  const payItem = { date: '2026-10-11', amount: 4500, memo: '카카오페이 스타벅스', kind: 'expense', accountId: 'kp' };
+  assert.deepEqual([topup.kind, topup.categoryId, topup.method], ['expense', null, L.PAY_PENDING]);
+  assert.equal(L.isPayPending(topup), true);
+  assert.equal(L.applyPayRules(topup, accounts), false); // 이미 정산 전
+  const refund = { date: '2026-10-11', amount: 3000, memo: '카카오페이', kind: 'income', accountId: 'kb' };
+  assert.equal(L.applyPayRules(refund, accounts), true);
+  assert.equal(refund.kind, 'transfer');
+  const payItem = { date: '2026-10-12', amount: 4500, memo: '카카오페이 스타벅스', kind: 'expense', accountId: 'kp' };
   assert.equal(L.applyPayRules(payItem, accounts), false); // 페이 자체 내역은 그대로 지출
   assert.equal(L.applyPayRules({ memo: '스타벅스', kind: 'expense', accountId: 'kb' }, accounts), false);
 
-  const st = L.normalizeState({ settings: { startDay: 10 }, accounts, transactions: [{ id: '1', ...topup }, { id: '2', ...payItem }] });
+  const st = L.normalizeState({ settings: { startDay: 10 }, accounts, transactions: [{ id: '1', ...topup }] });
   assert.equal(st.accounts[1].type, 'pay');
   assert.equal(st.accounts[1].payName, '카카오페이');
-  const flows = L.payFlows(st, L.getPeriod('2026-10-11', 10));
-  assert.deepEqual(flows.map((f) => [f.account.id, f.topup, f.spent, f.count]), [['kp', 50000, 4500, 1]]);
+  const period = L.getPeriod('2026-10-11', 10);
+  let flows = L.payFlows(st, period);
+  assert.deepEqual(flows.map((f) => [f.account.id, f.topup, f.pending, f.pendingCount, f.estimate]), [['kp', 50000, 50000, 1, 50000]]);
+  const sum = L.summarizePeriod(st, period);
+  assert.equal(sum.unclassified, 50000);
+  assert.equal(sum.totalSpent, 50000);
+
+  // 잔액 보정: 기준 잔액 0, 지금 20,000 → 30,000 만 쓴 것으로
+  L.recordBalance(st.accounts[1], 0, '', '2026-10-09');
+  L.recordBalance(st.accounts[1], 20000, 'x', '2026-10-15');
+  assert.equal(st.accounts[1].balance, 20000);
+  flows = L.payFlows(st, period);
+  assert.equal(flows[0].adjust, -20000);
+  assert.equal(flows[0].estimate, 30000);
+  assert.equal(L.summarizePeriod(st, period).totalSpent, 30000);
+  // 잔액이 충전보다 더 늘어도 0 아래로는 안 내려간다
+  L.recordBalance(st.accounts[1], 90000, 'y', '2026-10-15');
+  assert.equal(L.payFlows(st, period)[0].estimate, 0);
+  // 같은 날짜 잔액 기록은 하나만
+  assert.equal(st.accounts[1].balanceLog.length, 2);
+  // 잔액 기록이 저장된 상태에서도 유지
+  assert.equal(L.normalizeState(st).accounts[1].balanceLog.length, 2);
 
   // 페이 결제내역 파일의 충전 줄은 내 계좌 이동
   const rows = [['거래일시', '구분', '금액', '내용'], ['2026-10-11 10:00', '충전', '30,000', '카카오페이머니 충전'], ['2026-10-11 12:00', '결제', '-4,500', '스타벅스']];
   const parsed = L.parseStatementRows(rows, { accountId: 'kp', payAccount: true });
   assert.deepEqual(parsed.items.map((i) => [i.kind, i.amount, i.memo]), [['transfer', 30000, '카카오페이머니 충전'], ['expense', 4500, '스타벅스']]);
+});
+
+test('카카오페이 정산: 결제내역이 덮는 날짜의 출금은 내 계좌 이체, 나머지는 정산 전', () => {
+  const st = L.normalizeState({
+    settings: { startDay: 1 },
+    accounts: [
+      { id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' },
+      { id: 'kp', name: '카카오페이', type: 'pay', payName: '카카오페이' },
+    ],
+    transactions: [
+      { id: 'p1', date: '2026-10-03', amount: 4500, memo: '스타벅스', kind: 'expense', accountId: 'kp', categoryId: 'c-cafe' },
+      { id: 'p2', date: '2026-10-08', amount: 12000, memo: '배민', kind: 'expense', accountId: 'kp', categoryId: 'c-food' },
+      { id: 't1', date: '2026-10-02', amount: 50000, memo: '카카오페이', kind: 'expense', accountId: 'kb', method: PAY() },
+      { id: 't2', date: '2026-10-05', amount: 20000, memo: '카카오페이', kind: 'expense', accountId: 'kb', categoryId: 'c-shop', method: 'ai' },
+      { id: 't3', date: '2026-10-12', amount: 30000, memo: '카카오페이', kind: 'transfer', accountId: 'kb' },
+      { id: 't4', date: '2026-10-13', amount: 7000, memo: '카카오페이', kind: 'expense', accountId: 'kb', categoryId: 'c-food', method: 'manual' },
+      { id: 't5', date: '2026-10-14', amount: 9000, memo: '카카오페이', kind: 'expense', accountId: 'kb', categoryId: 'c-food', method: 'ai' },
+      { id: 't6', date: '2026-10-15', amount: 1000, memo: '카카오페이', kind: 'transfer', accountId: 'kb', raw: '[카카오뱅크] 입금 1,000원 카카오페이' },
+      { id: 'x', date: '2026-10-05', amount: 9000, memo: '김밥천국', kind: 'expense', accountId: 'kb' },
+    ],
+  });
+  function PAY() { return L.PAY_PENDING; }
+  assert.deepEqual(L.payCoverage(st), { kp: { start: '2026-10-03', end: '2026-10-08' } });
+  const fixes = Object.fromEntries(L.payReconcile(st).map((f) => [f.tx.id, f.patch]));
+  assert.deepEqual(Object.keys(fixes).sort(), ['t2', 't3', 't5']);
+  assert.equal(fixes.t2.kind, 'transfer'); // 결제내역 기간 안 → 이중 계산 없앰
+  assert.deepEqual(fixes.t3, { kind: 'expense', categoryId: null, method: L.PAY_PENDING }); // 예전에 이체로 바꾼 것 → 정산 전
+  assert.deepEqual(fixes.t5, { categoryId: null, method: L.PAY_PENDING }); // AI 분류 → 정산 전, 직접 고른 t4 는 그대로
+  // 정산 맞춘 뒤에는 바꿀 것이 없다
+  for (const f of L.payReconcile(st)) Object.assign(f.tx, f.patch);
+  assert.deepEqual(L.payReconcile(st), []);
+  // 결제내역 끝 다음날부터 정산 전으로 센다
+  const f = L.payFlows(st, L.getPeriod('2026-10-10', 1))[0];
+  assert.equal(f.from, '2026-10-09');
+  assert.equal(f.pending, 30000 + 50000 + 9000);
+});
+
+test('페이를 은행 계좌로 등록했으면 찾아낸다', () => {
+  const st = L.normalizeState({
+    accounts: [
+      { id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' },
+      { id: 'kp', name: '카카오페이', type: 'bank' },
+    ],
+    transactions: [
+      { id: '1', date: '2026-10-11', amount: 50000, memo: '카카오페이', kind: 'expense', accountId: 'kb' },
+      { id: '2', date: '2026-10-11', amount: 4500, memo: '스타벅스', kind: 'expense', accountId: 'kp' },
+    ],
+  });
+  assert.deepEqual(L.payMisregistered(st).map((a) => a.id), ['kp']);
+  st.accounts[1].type = 'pay';
+  assert.deepEqual(L.payMisregistered(st), []);
+});
+
+test('카카오페이 정산 버튼: 페이 계정이 없어도 카카오페이 이름으로 찾는다', () => {
+  const st = L.normalizeState({
+    accounts: [{ id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' }],
+    transactions: [
+      { id: '1', date: '2026-09-11', amount: 50000, memo: '카카오페이', kind: 'expense', accountId: 'kb', categoryId: 'c-food', method: 'ai' },
+      { id: '2', date: '2026-10-11', amount: 20000, memo: '(주)카카오페이 충전', kind: 'expense', accountId: 'kb' },
+      { id: '3', date: '2026-10-11', amount: 9000, memo: '김밥천국', kind: 'expense', accountId: 'kb' },
+      { id: '4', date: '2026-10-12', amount: 10000, memo: '카카오페이', kind: 'transfer', accountId: 'kb' },
+    ],
+  });
+  const c = L.payTopupCandidates(st);
+  assert.equal(c.account, null);
+  assert.equal(c.payName, '카카오페이');
+  assert.deepEqual(c.txs.map((t) => t.id), ['1', '2', '4']);
 });
 
 test('카카오페이 결제내역: 사용처 칸을 사용처로 읽는다', () => {
@@ -456,41 +548,3 @@ test('카카오페이 결제내역: 사용처 칸을 사용처로 읽는다', ()
   ]);
 });
 
-test('이중 계산 찾기: 페이를 은행 계좌로 등록했어도 찾아낸다', () => {
-  const st = L.normalizeState({
-    accounts: [
-      { id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' },
-      { id: 'kp', name: '카카오페이', type: 'bank' },
-    ],
-    transactions: [
-      { id: '1', date: '2026-10-11', amount: 50000, memo: '카카오페이', kind: 'expense', accountId: 'kb' },
-      { id: '2', date: '2026-10-11', amount: 4500, memo: '스타벅스', kind: 'expense', accountId: 'kp' },
-      { id: '3', date: '2026-10-11', amount: 9000, memo: '김밥천국', kind: 'expense', accountId: 'kb' },
-    ],
-  });
-  const d = L.payDoubleCounts(st);
-  assert.equal(d.length, 1);
-  assert.equal(d[0].needsType, true);
-  assert.deepEqual(d[0].txs.map((t) => t.id), ['1']);
-  assert.equal(d[0].total, 50000);
-  // 고친 뒤에는 없음
-  st.accounts[1].type = 'pay';
-  st.transactions[0].kind = 'transfer';
-  assert.deepEqual(L.payDoubleCounts(st), []);
-});
-
-test('카카오페이 출금 정리 버튼: 페이 계정이 없어도 카카오페이 이름으로 찾는다', () => {
-  const st = L.normalizeState({
-    accounts: [{ id: 'kb', name: '카카오뱅크', type: 'bank', last4: '1234' }],
-    transactions: [
-      { id: '1', date: '2026-09-11', amount: 50000, memo: '카카오페이', kind: 'expense', accountId: 'kb' },
-      { id: '2', date: '2026-10-11', amount: 20000, memo: '(주)카카오페이 충전', kind: 'expense', accountId: 'kb' },
-      { id: '3', date: '2026-10-11', amount: 9000, memo: '김밥천국', kind: 'expense', accountId: 'kb' },
-      { id: '4', date: '2026-10-12', amount: 10000, memo: '카카오페이', kind: 'transfer', accountId: 'kb' },
-    ],
-  });
-  const c = L.payTopupCandidates(st);
-  assert.equal(c.account, null);
-  assert.equal(c.payName, '카카오페이');
-  assert.deepEqual(c.txs.map((t) => t.id), ['1', '2']);
-});

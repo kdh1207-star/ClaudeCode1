@@ -184,6 +184,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .card-head h2 { margin: 0; }
 .note-card { background: var(--surface-2); box-shadow: none; }
 .note-card p { margin: 4px 0 8px; }
+.pay-bal { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.pay-bal label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 130px; }
+.pay-bal input { width: 100%; }
 .warn-card { background: var(--warning-track); border-color: transparent; }
 .card .sub-head { margin-top: 18px; }
 

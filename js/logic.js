@@ -178,7 +178,11 @@
         unclassifiedCount += 1;
       }
     }
-    const totalSpent = txs.reduce((s, t) => s + t.amount, 0);
+    // 정산 전 페이 지출을 잔액으로 보정한 만큼 (미분류에 더한다)
+    const pay = payFlows(state, period);
+    const payAdjust = pay.reduce((s, f) => s + f.adjust, 0);
+    unclassified += payAdjust;
+    const totalSpent = txs.reduce((s, t) => s + t.amount, 0) + payAdjust;
     const incomeReceived = all.filter((t) => kindOf(t) === 'income').reduce((s, t) => s + t.amount, 0);
 
     const rows = plan.categories.map((c) => {
@@ -209,6 +213,8 @@
       rows,
       unclassified,
       unclassifiedCount,
+      pay,
+      payAdjust,
       totalSpent,
       incomeReceived,
       remaining: (hasIncome ? income : 0) - totalSpent,
@@ -420,62 +426,154 @@
     return null;
   }
 
-  // 다른 계좌의 내역인데 사용처가 페이 이름이면 '내 계좌 이체'(충전·환급)으로 바꾼다. 바꿨으면 true
+  // 은행 문자로는 페이 결제가 안 보인다. 그래서 다른 계좌에서 페이로 빠져나간 돈은
+  // 일단 '정산 전' 지출(미분류)로 세고, 페이 결제내역을 가져와 덮는 기간에 들어오면 '내 계좌 이체'로 바꾼다.
+  const PAY_PENDING = 'pay-pending';
+
+  function isPayPending(t) {
+    return kindOf(t) === 'expense' && t.method === PAY_PENDING && !t.categoryId;
+  }
+
+  // 다른 계좌의 페이 출금(충전)이면 그 페이 계정
+  function payTopupAccount(t, accounts) {
+    const acc = payAccountForMemo(t.memo, accounts);
+    return acc && t.accountId !== acc.id ? acc : null;
+  }
+
+  // 원문으로 보아 페이에서 돌려받은 돈(입금)인지
+  function looksLikeDeposit(t) {
+    const raw = String(t.raw || '');
+    return /입금|환불|환급|받았/.test(raw) && !/출금|결제|승인/.test(raw);
+  }
+
+  // 새로 들어온 내역에 적용: 페이 출금은 '정산 전' 미분류 지출, 페이에서 돌려받은 돈은 내 계좌 이체. 바꿨으면 true
   function applyPayRules(item, accounts) {
-    if (kindOf(item) === 'transfer') return false;
-    const acc = payAccountForMemo(item.memo, accounts);
-    if (!acc || item.accountId === acc.id) return false;
-    item.kind = 'transfer';
-    item.categoryId = null;
-    item.method = null;
+    if (!payTopupAccount(item, accounts)) return false;
+    const k = kindOf(item);
+    if (k === 'income') {
+      Object.assign(item, { kind: 'transfer', categoryId: null, method: null });
+      return true;
+    }
+    if (k !== 'expense' || isPayPending(item)) return false;
+    Object.assign(item, { categoryId: null, method: PAY_PENDING });
     return true;
   }
 
-  // 이중 계산 찾기: 페이 결제내역도 들어와 있는데, 다른 계좌의 같은 이름 출금이 아직 지출(또는 입금)로 남은 것.
-  // 페이를 '은행 계좌'로 등록해 둔 경우(이름에 페이/pay, 그 계정에 지출이 있음)도 찾아서 종류를 바꾸라고 알려 준다.
-  function payDoubleCounts(state) {
+  // 페이 결제내역이 덮는 날짜 범위: { [payId]: { start, end } }
+  function payCoverage(state) {
+    const out = {};
+    for (const t of state.transactions || []) {
+      if (!t.accountId || !t.date) continue;
+      const c = out[t.accountId];
+      if (!c) out[t.accountId] = { start: t.date, end: t.date };
+      else {
+        if (t.date < c.start) c.start = t.date;
+        if (t.date > c.end) c.end = t.date;
+      }
+    }
+    const pays = {};
+    for (const a of state.accounts || []) if (a.type === 'pay' && out[a.id]) pays[a.id] = out[a.id];
+    return pays;
+  }
+
+  // 내역 하나를 페이 기준에 맞추는 데 필요한 변경 (없으면 null)
+  function payPatchFor(t, accounts, coverage) {
+    const pays = (accounts || []).filter((a) => a.type === 'pay');
+    const acc = payTopupAccount(t, pays);
+    if (!acc) return null;
+    const k = kindOf(t);
+    const c = coverage[acc.id];
+    const covered = !!c && t.date >= c.start && t.date <= c.end;
+    const transfer = { kind: 'transfer', categoryId: null, method: null };
+    if (covered || k === 'income') return k === 'transfer' ? null : transfer;
+    if (k === 'transfer') return looksLikeDeposit(t) ? null : { kind: 'expense', categoryId: null, method: PAY_PENDING };
+    // 결제내역이 없는 기간의 출금: 직접 고른 것만 그대로, 나머지는 정산 전으로
+    if (isPayPending(t) || t.method === 'manual') return null;
+    return { categoryId: null, method: PAY_PENDING };
+  }
+
+  // 페이 정산 맞추기: [{ tx, patch, account }]
+  function payReconcile(state, onlyAccountId) {
+    const coverage = payCoverage(state);
+    const pays = (state.accounts || []).filter((a) => a.type === 'pay' && (!onlyAccountId || a.id === onlyAccountId));
     const out = [];
-    for (const a of state.accounts) {
-      const looksPay = a.type !== 'card' && /페이|pay/i.test(a.name) &&
-        state.transactions.some((t) => t.accountId === a.id && kindOf(t) === 'expense');
-      if (a.type !== 'pay' && !looksPay) continue;
-      const pseudo = { ...a, type: 'pay', payName: a.payName || a.name };
-      const txs = state.transactions.filter((t) => applyPayRules({ ...t }, [pseudo]));
-      if (txs.length) out.push({ account: a, payName: pseudo.payName, needsType: a.type !== 'pay', txs, total: txs.reduce((s, t) => s + (kindOf(t) === 'expense' ? t.amount : 0), 0) });
+    for (const t of state.transactions) {
+      const patch = payPatchFor(t, pays, coverage);
+      if (patch) out.push({ tx: t, patch, account: payTopupAccount(t, pays) });
     }
     return out;
   }
 
-  // '카카오페이 출금 정리' 버튼용: 정리할 페이 이름과 계정, 바꿀 내역.
-  // 간편결제 머니로 등록한 계정이 없으면 이름이 카카오페이인 계정, 그것도 없으면 '카카오페이' 이름만으로 찾는다.
+  // 페이를 '은행 계좌'로 잘못 등록한 것 찾기 (이름에 페이/pay, 그 계정에 지출이 있음)
+  function payMisregistered(state) {
+    return state.accounts.filter((a) => a.type === 'bank' && /페이|pay/i.test(a.name) &&
+      state.transactions.some((t) => t.accountId === a.id && kindOf(t) === 'expense'));
+  }
+
+  // '카카오페이 정산 맞추기' 버튼용: 정리할 페이 계정 (없으면 카카오페이 이름의 계정, 그것도 없으면 null)
   function payTopupCandidates(state) {
     const acc = state.accounts.find((a) => a.type === 'pay') ||
       state.accounts.find((a) => a.type !== 'card' && /카카오\s*페이/i.test(a.name)) || null;
     const payName = (acc && (acc.payName || acc.name)) || '카카오페이';
     const pseudo = { ...(acc || { id: '__none', name: payName }), type: 'pay', payName };
-    const txs = state.transactions.filter((t) => applyPayRules({ ...t }, [pseudo]));
+    const others = state.accounts.filter((a) => a.id !== pseudo.id);
+    const txs = payReconcile({ ...state, accounts: [...others, pseudo] }, pseudo.id).map((r) => r.tx);
     return { account: acc, payName, needsType: !!acc && acc.type !== 'pay', txs };
   }
 
-  // 기간별 페이 머니 흐름: 충전(다른 계좌에서 옮긴 돈)과 페이 결제내역
+  // 잔액 기록: 현재 잔액과 날짜별 기록(최근 60개)
+  function recordBalance(acc, amount, atISO, dateISO) {
+    acc.balance = amount;
+    acc.balanceAt = atISO;
+    if (typeof amount !== 'number' || !dateISO) return;
+    const log = (acc.balanceLog || []).filter((e) => e.date !== dateISO);
+    log.push({ date: dateISO, amount });
+    log.sort((a, b) => (a.date < b.date ? -1 : 1));
+    acc.balanceLog = log.slice(-60);
+  }
+
+  // 기간별 페이 흐름과 '정산 전' 추정.
+  // 정산 전 지출 = 결제내역 없이 페이로 옮긴 돈. 기준 잔액과 지금 잔액이 있으면 아직 안 쓴 만큼(잔액 증가분)을 뺀다.
   function payFlows(state, period) {
     const txs = txsInPeriod(state, period);
-    return state.accounts.filter((a) => a.type === 'pay').map((acc) => {
+    const coverage = payCoverage(state);
+    return (state.accounts || []).filter((a) => a.type === 'pay').map((acc) => {
       let topup = 0;
       let spent = 0;
       let count = 0;
+      let pending = 0;
+      let pendingCount = 0;
+      const pendingTxs = [];
       for (const t of txs) {
-        const k = kindOf(t);
         if (t.accountId === acc.id) {
-          if (k === 'expense') {
+          if (kindOf(t) === 'expense') {
             spent += t.amount;
             count += 1;
           }
-        } else if (k === 'transfer' && payAccountForMemo(t.memo, [acc])) {
-          topup += t.amount;
+          continue;
+        }
+        if (!payTopupAccount(t, [acc])) continue;
+        const k = kindOf(t);
+        if (k === 'transfer' || isPayPending(t)) topup += t.amount;
+        if (isPayPending(t)) {
+          pending += t.amount;
+          pendingCount += 1;
+          pendingTxs.push(t);
         }
       }
-      return { account: acc, topup, spent, count };
+      // 기준일: 기간 시작과 결제내역 끝 다음날 중 늦은 날
+      const c = coverage[acc.id];
+      let from = period.start;
+      if (c && c.end >= from) from = addDays(c.end, 1);
+      const log = acc.balanceLog || [];
+      const base = log.filter((e) => e.date < from).pop() || null;
+      const now = log.filter((e) => e.date >= from && e.date <= period.end).pop() || null;
+      let adjust = 0;
+      if (pendingCount && base && now) {
+        const inWindow = pendingTxs.filter((t) => t.date >= from && t.date <= now.date).reduce((s, t) => s + t.amount, 0);
+        adjust = Math.max(-inWindow, -(now.amount - base.amount));
+      }
+      return { account: acc, topup, spent, count, pending, pendingCount, from, base, now, adjust, estimate: pending + adjust };
     });
   }
 
@@ -1090,6 +1188,9 @@
       isSavings: !!a.isSavings,
       balance: typeof a.balance === 'number' ? a.balance : null,
       balanceAt: String(a.balanceAt || ''),
+      balanceLog: (Array.isArray(a.balanceLog) ? a.balanceLog : [])
+        .filter((e) => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && typeof e.amount === 'number')
+        .map((e) => ({ date: e.date, amount: e.amount })),
     }));
 
     return {
@@ -1112,9 +1213,15 @@
     daysInMonth,
     getPeriod,
     payAccountForMemo,
+    PAY_PENDING,
+    isPayPending,
     applyPayRules,
+    payCoverage,
+    payPatchFor,
+    payReconcile,
+    payMisregistered,
+    recordBalance,
     payFlows,
-    payDoubleCounts,
     payTopupCandidates,
     txPeriod,
     txsInPeriod,

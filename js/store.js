@@ -217,7 +217,7 @@
             amount: it.amount,
             memo: it.memo,
             categoryId,
-            method: categoryId ? it.method || 'manual' : null,
+            method: categoryId ? it.method || 'manual' : expense && it.method === L.PAY_PENDING ? it.method : null,
             source: it.source || 'app',
             raw: it.raw || '',
             createdAt: now,
@@ -272,8 +272,12 @@
       });
       const now = nowISO();
       // 간편결제 머니 충전 출금은 항목 대신 내 계좌 이체로
-      targets.filter((t) => L.applyPayRules(t, store.state.accounts)).forEach((t) => Object.assign(t, { classifiedAt: now }));
-      const rest = targets.filter((t) => L.kindOf(t) === 'expense');
+      const coverage = L.payCoverage(store.state);
+      targets.forEach((t) => {
+        L.applyPayRules(t, store.state.accounts);
+        Object.assign(t, L.payPatchFor(t, store.state.accounts, coverage), { classifiedAt: now });
+      });
+      const rest = targets.filter((t) => L.kindOf(t) === 'expense' && !L.isPayPending(t));
       const res = rest.length ? await store.classify(rest) : [];
       rest.forEach((t, i) => Object.assign(t, res[i], { classifiedAt: now }));
       saveLocal();

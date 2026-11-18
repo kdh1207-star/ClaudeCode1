@@ -1124,6 +1124,7 @@
     $('#m-account').innerHTML = accountOptions(acc);
     const fileAcc = $('#file-account').value || (S().accounts.find((a) => a.type !== 'card') || {}).id || '';
     $('#file-account').innerHTML = accountOptions(fileAcc, '계좌 선택 안 함');
+    showFilePassword();
     $('#paste-account').innerHTML = accountOptions($('#paste-account').value, '결제수단 모름');
     $('#m-memo').placeholder = manualKind === 'income' ? '(주)회사 급여' : manualKind === 'transfer' ? '적금 계좌로' : '스타벅스 강남점';
     updateManualHint();
@@ -1217,11 +1218,52 @@
     renderParseResult();
   }
 
+  // 잠긴 거래내역 파일 비밀번호: 계좌별로 이 기기(localStorage)에만 저장한다. 구글 시트로는 보내지 않는다
+  const FILE_PW_KEY = 'budget-file-passwords';
+  function filePasswords() {
+    try {
+      const v = JSON.parse(localStorage.getItem(FILE_PW_KEY) || '{}');
+      return v && typeof v === 'object' ? v : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function saveFilePassword(accountId, pw) {
+    const all = filePasswords();
+    if (pw) all[accountId || '*'] = pw;
+    else delete all[accountId || '*'];
+    try {
+      localStorage.setItem(FILE_PW_KEY, JSON.stringify(all));
+    } catch (e) {
+      /* 저장 못 해도 이번 한 번은 쓴다 */
+    }
+  }
+  function showFilePassword() {
+    const all = filePasswords();
+    $('#file-password').value = all[$('#file-account').value || '*'] || '';
+  }
+
   async function onFileChosen(file) {
     const accountId = $('#file-account').value || null;
+    const saved = filePasswords();
+    // 지금 칸의 비밀번호 → 이 계좌에 저장한 것 → 다른 계좌에 저장한 것 순서로 시도
+    const passwords = [$('#file-password').value, saved[accountId || '*'], ...Object.values(saved)].filter(Boolean);
     let rows;
     try {
-      rows = await window.BudgetXlsx.readTableFile(file);
+      rows = await busy(null, () => window.BudgetXlsx.readTableFile(file, {
+        passwords,
+        askPassword: async (wrong) => {
+          const pw = prompt(wrong ? '저장된 비밀번호가 맞지 않아요. 이 파일의 비밀번호를 입력해 주세요.' : '비밀번호가 걸린 파일이에요. 파일 비밀번호를 입력해 주세요.');
+          if (pw) toast('파일을 푸는 중…', 60000);
+          return pw;
+        },
+        onPassword: (pw, asked) => {
+          if (saved[accountId || '*'] === pw) return;
+          saveFilePassword(accountId, pw);
+          showFilePassword();
+          if (asked) toast('비밀번호를 이 기기에 저장했어요. 다음부터는 자동으로 풀어요.', 4000);
+        },
+      }));
     } catch (e) {
       return toast(e.message || '파일을 읽지 못했어요.', 7000);
     }
@@ -1684,6 +1726,11 @@
     $('#paste-clear').addEventListener('click', () => {
       $('#paste-input').value = '';
       clearPreview();
+    });
+    $('#file-account').addEventListener('change', showFilePassword);
+    $('#file-password').addEventListener('change', (e) => {
+      saveFilePassword($('#file-account').value, e.target.value);
+      toast(e.target.value ? '이 계좌의 파일 비밀번호를 이 기기에 저장했어요.' : '저장한 파일 비밀번호를 지웠어요.');
     });
     $('#file-input').addEventListener('change', quiet(async (e) => {
       if (e.target.files[0]) await onFileChosen(e.target.files[0]);

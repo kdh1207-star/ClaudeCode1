@@ -310,6 +310,8 @@ select.full { width: 100%; }
 .tx-icon.gray { background: var(--gray-mark); }
 .tx-main { min-width: 0; }
 .tx-memo { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.tx-rename { display: block; max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.tx-pen { opacity: .45; font-weight: 400; }
 .tx-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 2px; }
 .tx-meta select { font-size: 12px; padding: 3px 6px; border-radius: 8px; max-width: 160px; }
 .tx-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
@@ -1640,7 +1642,7 @@ p.hint-collapsed { display: none; }
               <div class="card" id="set-data">
                 <h2 data-kicker="DATA">데이터</h2>
                 <p id="data-note" class="muted small"></p>
-                <p class="muted small">앱 버전 <code id="build-id">3b7458f</code></p>
+                <p class="muted small">앱 버전 <code id="build-id">d228f3a</code></p>
                 <div class="row-actions">
                   <button id="export-btn" class="ghost-btn">백업 내보내기(JSON)</button>
                   <label class="ghost-btn file-btn">백업 불러오기<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -4216,7 +4218,7 @@ p.hint-collapsed { display: none; }
       <div class="tx">
         ${icon}
         <div class="tx-main">
-          <div class="tx-memo">${esc(t.memo)}</div>
+          ${editable ? `<button class="tx-memo tx-rename" data-id="${esc(t.id)}" title="눌러서 이름 바꾸기">${esc(t.memo)}<span class="tx-pen" aria-hidden="true"> ✎</span></button>` : `<div class="tx-memo">${esc(t.memo)}</div>`}
           <div class="tx-meta">${meta.join('')}</div>
         </div>
         <div class="tx-right">
@@ -4262,6 +4264,17 @@ p.hint-collapsed { display: none; }
       await busy(null, () => store.updateTransaction(t.id, { periodShift: n }));
       const p = L.txPeriod(t, S().settings.startDay);
       toast(n ? `날짜는 그대로 두고 ${fmtDate(p.start)} 기간에 계산해요.` : '원래 날짜의 기간으로 되돌렸어요.');
+      render();
+    })));
+    // 내역 이름(사용처·메모) 바꾸기: 이 내역 하나만 바뀐다
+    container.querySelectorAll('.tx-rename').forEach((b) => b.addEventListener('click', quiet(async () => {
+      const t = S().transactions.find((x) => x.id === b.dataset.id);
+      const v = prompt('내역 이름(사용처·메모)', t.memo);
+      if (v === null) return;
+      const memo = v.trim();
+      if (!memo || memo === t.memo) return;
+      await busy(null, () => store.updateTransaction(t.id, { memo }));
+      toast('이름을 바꿨어요.');
       render();
     })));
     container.querySelectorAll('.tx-del').forEach((b) => b.addEventListener('click', quiet(async () => {

@@ -288,7 +288,7 @@
       <div class="tx">
         ${icon}
         <div class="tx-main">
-          <div class="tx-memo">${esc(t.memo)}</div>
+          ${editable ? `<button class="tx-memo tx-rename" data-id="${esc(t.id)}" title="눌러서 이름 바꾸기">${esc(t.memo)}<span class="tx-pen" aria-hidden="true"> ✎</span></button>` : `<div class="tx-memo">${esc(t.memo)}</div>`}
           <div class="tx-meta">${meta.join('')}</div>
         </div>
         <div class="tx-right">
@@ -334,6 +334,17 @@
       await busy(null, () => store.updateTransaction(t.id, { periodShift: n }));
       const p = L.txPeriod(t, S().settings.startDay);
       toast(n ? `날짜는 그대로 두고 ${fmtDate(p.start)} 기간에 계산해요.` : '원래 날짜의 기간으로 되돌렸어요.');
+      render();
+    })));
+    // 내역 이름(사용처·메모) 바꾸기: 이 내역 하나만 바뀐다
+    container.querySelectorAll('.tx-rename').forEach((b) => b.addEventListener('click', quiet(async () => {
+      const t = S().transactions.find((x) => x.id === b.dataset.id);
+      const v = prompt('내역 이름(사용처·메모)', t.memo);
+      if (v === null) return;
+      const memo = v.trim();
+      if (!memo || memo === t.memo) return;
+      await busy(null, () => store.updateTransaction(t.id, { memo }));
+      toast('이름을 바꿨어요.');
       render();
     })));
     container.querySelectorAll('.tx-del').forEach((b) => b.addEventListener('click', quiet(async () => {

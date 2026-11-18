@@ -266,6 +266,90 @@
     return id ? { categoryId: id, method: 'keyword' } : { categoryId: null, method: null };
   }
 
+  // ---------- 조건 규칙 ----------
+  // 이름만으로는 못 잡는 내역(예: 이름 없이 '입금'으로만 찍히는 내 주식 계좌 입금)을 계좌·금액·날짜로 잡는다.
+  // { id, name, accountId, amount, day, flow: 'any'|'in'|'out', target: 항목 id | 'transfer' }
+  const RULE_DAY_RANGE = 2;
+
+  function normalizeRule(r) {
+    if (!r || typeof r !== 'object') return null;
+    const amount = Number.isInteger(r.amount) && r.amount > 0 ? r.amount : null;
+    const day = Number.isInteger(r.day) && r.day >= 1 && r.day <= 31 ? r.day : null;
+    const name = String(r.name || '').trim();
+    const target = String(r.target || '');
+    if (!target || (!name && amount === null)) return null;
+    return {
+      id: String(r.id || `r-${Math.random().toString(36).slice(2, 10)}`),
+      name,
+      accountId: r.accountId ? String(r.accountId) : '',
+      amount,
+      day,
+      flow: r.flow === 'in' || r.flow === 'out' ? r.flow : 'any',
+      target,
+    };
+  }
+
+  function ruleMatches(rule, t) {
+    const k = kindOf(t);
+    if (k === 'transfer') return false;
+    if (rule.flow === 'in' && k !== 'income') return false;
+    if (rule.flow === 'out' && k !== 'expense') return false;
+    if (rule.accountId && t.accountId !== rule.accountId) return false;
+    if (rule.amount !== null && Math.abs(Number(t.amount) || 0) !== rule.amount) return false;
+    if (rule.name && !normalizeMerchant(t.memo).includes(normalizeMerchant(rule.name))) return false;
+    if (rule.day) {
+      const { y, m, d } = parseISO(t.date);
+      const dim = daysInMonth(y, m);
+      const want = Math.min(rule.day, dim);
+      const diff = Math.abs(d - want);
+      if (Math.min(diff, dim - diff) > RULE_DAY_RANGE) return false;
+    }
+    return true;
+  }
+
+  // 맞는 규칙이 있으면 내역을 바꾸고 그 규칙을 돌려준다. 결과 항목이 그 기간 계획에 없으면 건너뛴다
+  function applyRules(item, state) {
+    for (const rule of state.rules || []) {
+      if (!ruleMatches(rule, item)) continue;
+      if (rule.target === 'transfer') {
+        Object.assign(item, { kind: 'transfer', categoryId: null, method: null });
+        return rule;
+      }
+      const cats = planFor(state, txPeriod(item, state.settings.startDay).key).categories;
+      if (!cats.some((c) => c.id === rule.target)) continue;
+      Object.assign(item, { kind: 'expense', categoryId: rule.target, method: 'rule' });
+      return rule;
+    }
+    return null;
+  }
+
+  // 규칙을 만들 때 '이미 기록된 내역에도 적용'할 대상 (직접 고른 내역은 건드리지 않는다)
+  function ruleTargets(state, rule) {
+    return (state.transactions || []).filter((t) => t.method !== 'manual' && ruleMatches(rule, t));
+  }
+
+  // '30만', '3만5천', '12,000원' 같은 금액. 금액이 아니면 null
+  function parseKoreanAmount(s) {
+    const t = String(s || '').replace(/[\s,원₩]/g, '');
+    if (!t) return null;
+    if (/^\d+$/.test(t)) return Number(t);
+    const m = t.match(/^(?:(\d+(?:\.\d+)?)억)?(?:(\d+(?:\.\d+)?)만)?(?:(\d+(?:\.\d+)?)천)?(\d+)?$/);
+    if (!m || !(m[1] || m[2] || m[3])) return null;
+    return Math.round((Number(m[1]) || 0) * 1e8 + (Number(m[2]) || 0) * 1e4 + (Number(m[3]) || 0) * 1e3 + (Number(m[4]) || 0));
+  }
+
+  // 내역 검색: 사용처 이름, 또는 금액 ('4500' 은 금액에 4500 이 들어간 것, '30만' 처럼 단위를 쓰면 정확히 그 금액)
+  function txMatchesSearch(t, query) {
+    const q = normalizeMerchant(query);
+    if (!q) return true;
+    if (normalizeMerchant(t.memo).includes(q)) return true;
+    const amt = Math.abs(Number(t.amount) || 0);
+    const digits = String(query).replace(/[\s,원₩]/g, '');
+    if (/^\d+$/.test(digits)) return String(amt).includes(digits);
+    const n = parseKoreanAmount(query);
+    return n !== null && amt === n;
+  }
+
   // ---------- 지출 내역 텍스트 인식 ----------
 
   const NOISE_PATTERNS = [
@@ -1151,6 +1235,7 @@
       incomes: {},
       transactions: [],
       merchantMap: {},
+      rules: [],
     };
   }
 
@@ -1201,6 +1286,7 @@
       incomes: raw.incomes && typeof raw.incomes === 'object' ? raw.incomes : {},
       transactions: Array.isArray(raw.transactions) ? raw.transactions : [],
       merchantMap: raw.merchantMap && typeof raw.merchantMap === 'object' ? raw.merchantMap : {},
+      rules: (Array.isArray(raw.rules) ? raw.rules : []).map(normalizeRule).filter(Boolean),
     };
   }
 
@@ -1213,6 +1299,12 @@
     daysInMonth,
     getPeriod,
     payAccountForMemo,
+    normalizeRule,
+    ruleMatches,
+    applyRules,
+    ruleTargets,
+    parseKoreanAmount,
+    txMatchesSearch,
     PAY_PENDING,
     isPayPending,
     applyPayRules,

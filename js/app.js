@@ -137,7 +137,7 @@
       .join('');
   }
 
-  const METHOD_LABEL = { ai: 'AI', learned: '규칙', keyword: '키워드', manual: '직접', 'pay-pending': '정산 전' };
+  const METHOD_LABEL = { ai: 'AI', learned: '규칙', keyword: '키워드', manual: '직접', rule: '규칙', 'pay-pending': '정산 전' };
   const methodTag = (m) => (m && METHOD_LABEL[m] ? `<span class="tag">${METHOD_LABEL[m]}</span>` : '');
 
   // ---------- 페이지 이동 ----------
@@ -739,7 +739,7 @@
       if (listState.category === '__none' && (kind !== 'expense' || known.has(t.categoryId))) return false;
       if (listState.category !== 'all' && listState.category !== '__none' && t.categoryId !== listState.category) return false;
       if (listState.account !== 'all' && t.accountId !== listState.account) return false;
-      if (q && !L.normalizeMerchant(t.memo).includes(q)) return false;
+      if (q && !L.txMatchesSearch(t, listState.search)) return false;
       return true;
     });
 
@@ -1199,7 +1199,7 @@
 
   // 지출만 분류한다. 서버(AI)는 여러 번에 나눠 보낸다.
   async function classifyPreview(items) {
-    const expenses = items.filter((it) => it.kind === 'expense' && it.method !== L.PAY_PENDING);
+    const expenses = items.filter((it) => it.kind === 'expense' && it.method !== L.PAY_PENDING && it.method !== 'rule');
     const step = store.mode === 'remote' ? 60 : expenses.length || 1;
     for (let i = 0; i < expenses.length; i += step) {
       const chunk = expenses.slice(i, i + step);
@@ -1223,6 +1223,7 @@
     preview.items = withDupFlags(items.map((it) => {
       const x = { ...it, kind: 'expense', accountId: pasteAcc };
       L.applyPayRules(x, S().accounts);
+      L.applyRules(x, S());
       return x;
     }));
     if (preview.items.length) await busy(store.aiEnabled ? `AI가 ${preview.items.length}건을 분류하는 중…` : null, () => classifyPreview(preview.items));
@@ -1280,7 +1281,10 @@
     }
     const fileAccount = S().accounts.find((a) => a.id === accountId);
     const parsed = L.parseStatementRows(rows, { myName: S().settings.myName, accountId, payAccount: !!fileAccount && fileAccount.type === 'pay' });
-    parsed.items.forEach((it) => L.applyPayRules(it, S().accounts));
+    parsed.items.forEach((it) => {
+      L.applyPayRules(it, S().accounts);
+      L.applyRules(it, S());
+    });
     if (!parsed.header) return toast('거래내역 표를 찾지 못했어요. 날짜와 금액 칸이 있는 은행 거래내역 파일인지 확인해 주세요.', 7000);
     Object.assign(preview, { source: 'file', skipped: [], latest: parsed.latest, accountId, fileName: file.name });
     preview.items = withDupFlags(parsed.items);
@@ -1418,23 +1422,92 @@
   }
 
   // 자동 분류 규칙: 이 가맹점·상대는 항상 이 항목 (AI보다 먼저 적용). 직접 만들고 지운다.
+  function ruleTargetName(target, cats) {
+    if (target === 'transfer') return '내 계좌 이체';
+    const c = cats.find((x) => x.id === target);
+    return c ? esc(c.name) : '<span class="muted">지금 계획에 없는 항목</span>';
+  }
+
+  function ruleText(r) {
+    const parts = [];
+    if (r.accountId) parts.push(esc(accountName(r.accountId) || '삭제된 계좌'));
+    if (r.flow !== 'any') parts.push(r.flow === 'in' ? '들어온 돈' : '나간 돈');
+    if (r.name) parts.push(`'${esc(r.name)}'`);
+    if (r.amount !== null) parts.push(won(r.amount));
+    if (r.day) parts.push(`매달 ${r.day}일(±2일)`);
+    return parts.join(' · ');
+  }
+
   function renderRules() {
     const cats = currentPlan().categories;
     const entries = Object.entries(S().merchantMap).sort((a, b) => a[0].localeCompare(b[0], 'ko'));
-    $('#rule-cat').innerHTML = cats.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+    $('#rule-cat').innerHTML = cats.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('') +
+      '<optgroup label="지출이 아님"><option value="transfer">내 계좌 이체</option></optgroup>';
+    $('#rule-account').innerHTML = accountOptions($('#rule-account').value, '모든 계좌');
+    if (!$('#rule-day').options.length) {
+      $('#rule-day').innerHTML = '<option value="">상관없음</option>' + Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}일</option>`).join('');
+    }
+    const rules = S().rules || [];
     const el = $('#rule-rows');
-    el.innerHTML = entries.length
-      ? entries.map(([name, id]) => {
-        const c = cats.find((x) => x.id === id);
-        return `<div class="rule-row"><span class="rule-name">${esc(name)}</span><span class="rule-arrow">→</span><span>${c ? esc(c.name) : '<span class="muted">지금 계획에 없는 항목</span>'}</span><button class="link-btn rule-del" data-name="${esc(name)}" aria-label="${esc(name)} 규칙 삭제">✕</button></div>`;
-      }).join('')
+    el.innerHTML = entries.length || rules.length
+      ? rules.map((r) => `<div class="rule-row"><span class="rule-name">${ruleText(r)}</span><span class="rule-arrow">→</span><span>${ruleTargetName(r.target, cats)}</span><button class="link-btn rule-del" data-rule="${esc(r.id)}" aria-label="규칙 삭제">✕</button></div>`).join('') +
+        entries.map(([name, id]) => `<div class="rule-row"><span class="rule-name">${esc(name)}</span><span class="rule-arrow">→</span><span>${ruleTargetName(id, cats)}</span><button class="link-btn rule-del" data-name="${esc(name)}" aria-label="${esc(name)} 규칙 삭제">✕</button></div>`).join('')
       : '<div class="empty small">아직 규칙이 없어요. 모든 지출은 AI(또는 키워드)가 분류합니다.</div>';
     el.querySelectorAll('.rule-del').forEach((b) => b.addEventListener('click', () => {
-      delete S().merchantMap[b.dataset.name];
+      if (b.dataset.rule) S().rules = rules.filter((r) => r.id !== b.dataset.rule);
+      else delete S().merchantMap[b.dataset.name];
       store.saveMeta();
       toast('규칙을 지웠어요. 이미 분류된 내역은 그대로예요.');
       renderRules();
     }));
+  }
+
+  async function addRule() {
+    const rawName = $('#rule-name').value.trim();
+    const target = $('#rule-cat').value;
+    const accountId = $('#rule-account').value || '';
+    const flow = $('#rule-flow').value;
+    const amountText = $('#rule-amount').value.trim();
+    const amount = amountText ? L.parseKoreanAmount(amountText) : null;
+    const day = Number($('#rule-day').value) || null;
+    if (amountText && !amount) return toast('금액을 숫자로 입력해 주세요.');
+    if (!rawName && !amount) return toast('이름이나 금액 중 하나는 넣어 주세요. (모든 내역에 적용되는 걸 막기 위해서예요)');
+    let rule;
+    const isMerchant = !!rawName && !accountId && !amount && !day && flow === 'any' && target !== 'transfer';
+    if (isMerchant) {
+      // 이름 → 항목 규칙은 예전처럼 가맹점 규칙으로 (AI 에게도 알려 준다)
+      const name = L.normalizeMerchant(rawName);
+      S().merchantMap[name] = target;
+      rule = L.normalizeRule({ id: 'tmp', name, target, flow: 'out' });
+    } else {
+      rule = L.normalizeRule({ id: `r-${uid()}`, name: rawName, accountId, amount, day, flow, target });
+      S().rules = [...(S().rules || []), rule];
+    }
+    store.saveMeta();
+    ['#rule-name', '#rule-amount'].forEach((id) => ($(id).value = ''));
+    $('#rule-day').value = '';
+    $('#rule-flow').value = 'any';
+    $('#rule-account').value = '';
+    renderRules();
+
+    // 이미 기록된 내역에도 적용할지 묻는다
+    // 가맹점 규칙은 이름이 똑같은 내역에만 적용된다
+    const targets = L.ruleTargets(S(), rule).filter((t) => !isMerchant || L.normalizeMerchant(t.memo) === rule.name);
+    if (targets.length && confirm(`규칙을 만들었어요. 이미 기록된 내역 중 맞는 ${targets.length}건에도 적용할까요?`)) {
+      let done = 0;
+      await busy(`적용하는 중… (${targets.length}건)`, async () => {
+        for (const t of targets) {
+          const x = { ...t };
+          if (!L.applyRules(x, { ...S(), rules: [rule] })) continue;
+          await store.updateTransaction(t.id, { kind: x.kind, categoryId: x.categoryId, method: x.method });
+          done += 1;
+        }
+      });
+      toast(`${done}건에 규칙을 적용했어요.`);
+      render();
+    } else {
+      toast('규칙을 만들었어요. 앞으로 들어오는 내역부터 적용돼요.');
+    }
   }
 
   function renderAccountRows() {
@@ -1796,15 +1869,13 @@
       S().settings.myName = e.target.value.trim();
       store.saveMeta();
     });
-    $('#rule-form').addEventListener('submit', (e) => {
+    $('#rule-form').addEventListener('submit', quiet(async (e) => {
       e.preventDefault();
-      const name = L.normalizeMerchant($('#rule-name').value);
-      if (!name) return toast('가맹점이나 상대 이름을 입력해 주세요.');
-      S().merchantMap[name] = $('#rule-cat').value;
-      store.saveMeta();
-      $('#rule-name').value = '';
-      toast('규칙을 만들었어요. 앞으로 들어오는 내역부터 적용돼요.');
-      renderRules();
+      await addRule();
+    }));
+    $('#rule-amount').addEventListener('blur', (e) => {
+      const n = L.parseKoreanAmount(e.target.value);
+      if (n) e.target.value = n.toLocaleString('ko-KR');
     });
     $('#add-account').addEventListener('click', addAccount);
     $('#export-btn').addEventListener('click', exportData);

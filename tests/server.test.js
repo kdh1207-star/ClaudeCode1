@@ -415,3 +415,18 @@ test('다시 분류: 페이 출금은 AI 에 보내지 않고 정산 전, 결제
   const p = r2.updated.find((t) => t.date === '2026-10-20');
   assert.equal(p.method, 'pay-pending');
 });
+
+test('조건 규칙: 저장되고, 알림으로 들어온 입금에 적용된다', () => {
+  const env = makeEnv({
+    props: { ANTHROPIC_API_KEY: 'sk' },
+    claude: () => msg({ kind: 'income', date: '2026-11-11', amount: 300000, merchant: '입금', account_last4: '5678', categoryId: 'none' }),
+  });
+  const meta = env.api('load').state;
+  meta.accounts = [{ id: 'st', name: '주식 계좌', type: 'bank', last4: '5678' }];
+  meta.rules = [{ id: 'r1', accountId: 'st', amount: 300000, day: 11, flow: 'in', target: 'transfer' }];
+  env.api('saveMeta', { meta });
+  assert.equal(env.api('load').state.rules[0].id, 'r1');
+  const r = env.sms('[증권] 5678 입금 300,000원');
+  assert.equal(r.tx.kind, 'transfer');
+  assert.equal(r.tx.accountId, 'st');
+});

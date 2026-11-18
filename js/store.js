@@ -268,7 +268,7 @@
       const targets = store.state.transactions.filter((t) => {
         if (L.txPeriod(t, store.state.settings.startDay).key !== period.key || L.kindOf(t) !== 'expense') return false;
         const exists = known.has(t.categoryId);
-        return onlyUnclassified ? !exists : !(t.method === 'manual' && exists);
+        return onlyUnclassified ? !exists : !((t.method === 'manual' || t.method === 'rule') && exists);
       });
       const now = nowISO();
       // 간편결제 머니 충전 출금은 항목 대신 내 계좌 이체로
@@ -276,8 +276,9 @@
       targets.forEach((t) => {
         L.applyPayRules(t, store.state.accounts);
         Object.assign(t, L.payPatchFor(t, store.state.accounts, coverage), { classifiedAt: now });
+        L.applyRules(t, store.state);
       });
-      const rest = targets.filter((t) => L.kindOf(t) === 'expense' && !L.isPayPending(t));
+      const rest = targets.filter((t) => L.kindOf(t) === 'expense' && !L.isPayPending(t) && t.method !== 'rule');
       const res = rest.length ? await store.classify(rest) : [];
       rest.forEach((t, i) => Object.assign(t, res[i], { classifiedAt: now }));
       saveLocal();

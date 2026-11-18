@@ -163,7 +163,7 @@
         <section class="page" data-page="list">
           <div class="card">
             <div class="filters">
-              <input type="search" id="list-search" placeholder="사용처 검색" aria-label="사용처 검색">
+              <input type="search" id="list-search" placeholder="사용처 또는 금액 검색 (예: 스타벅스, 4500, 30만)" aria-label="사용처 또는 금액 검색">
               <select id="list-kind" aria-label="종류">
                 <option value="all">모든 종류</option>
                 <option value="expense">지출</option>
@@ -334,10 +334,20 @@
 
               <div class="card" id="set-rules">
                 <h2 data-kicker="RULES">자동 분류 규칙</h2>
-                <p class="muted small">여기 적은 가맹점·상대는 AI보다 먼저, 항상 정한 항목으로 분류합니다. 내역에서 항목을 바꾸는 건 그 내역 하나에만 적용되고 규칙을 만들지 않아요. 같은 사람에게 여러 용도로 보내는 경우엔 규칙을 만들지 마세요.</p>
+                <p class="muted small">여기 적은 규칙은 AI보다 먼저, 항상 정한 대로 분류합니다. 내역에서 항목을 바꾸는 건 그 내역 하나에만 적용되고 규칙을 만들지 않아요. 같은 사람에게 여러 용도로 보내는 경우엔 이름만으로 규칙을 만들지 마세요.</p>
                 <form id="rule-form" class="form-grid">
-                  <label>가맹점·상대 이름<input type="text" id="rule-name" placeholder="예: 스타벅스, 집주인" autocomplete="off"></label>
-                  <label>항목<select id="rule-cat"></select></label>
+                  <label>가맹점·상대 이름<input type="text" id="rule-name" placeholder="예: 스타벅스, 집주인 (비워도 됨)" autocomplete="off"></label>
+                  <label>분류<select id="rule-cat"></select></label>
+                  <details class="rule-more wide">
+                    <summary>조건 더하기 (계좌·금액·날짜)</summary>
+                    <p class="muted small">이름이 안 찍히는 내역도 잡을 수 있어요. 예: 주식 계좌 · 들어온 돈 · 300,000원 · 매달 11일 → 내 계좌 이체. 날짜는 앞뒤 2일까지 같은 것으로 봐요.</p>
+                    <div class="form-grid">
+                      <label>계좌<select id="rule-account"></select></label>
+                      <label>들어온 돈 / 나간 돈<select id="rule-flow"><option value="any">모두</option><option value="in">들어온 돈(입금)</option><option value="out">나간 돈(지출)</option></select></label>
+                      <label>금액(원)<input type="text" id="rule-amount" inputmode="numeric" placeholder="예: 300,000"></label>
+                      <label>매달 날짜<select id="rule-day"></select></label>
+                    </div>
+                  </details>
                   <div class="form-submit"><button type="submit" class="ghost-btn">규칙 추가</button></div>
                 </form>
                 <div id="rule-rows" class="rule-rows"></div>

@@ -176,8 +176,12 @@ function receiveMessage_(text, source) {
       method = parsed.method;
     }
 
+    // 설정에 적어 둔 조건 규칙(계좌·금액·날짜·이름)이 맞으면 그대로 따른다
+    var ruled = BL.applyRules(parsed, meta);
+    if (ruled) method = parsed.method;
+
     // 지출이면: 사용자가 직접 분류해 둔 가맹점을 우선하고, AI 결과가 없으면 키워드로
-    if (parsed.kind === 'expense' && !BL.isPayPending(parsed)) {
+    if (!ruled && parsed.kind === 'expense' && !BL.isPayPending(parsed)) {
       var planCats = BL.planFor(meta, BL.getPeriod(parsed.date, meta.settings.startDay).key).categories;
       var local = BL.classifyLocal(parsed.memo, planCats, meta.merchantMap);
       if (local.method === 'learned' || (!parsed.categoryId && local.categoryId)) {
@@ -271,7 +275,7 @@ function reclassify_(start, end, onlyUnclassified) {
     var plan = BL.planFor(meta, periodKey);
     var exists = plan.categories.some(function (c) { return c.id === t.categoryId; });
     if (onlyUnclassified) return !t.categoryId || !exists;
-    return !(t.method === 'manual' && exists);
+    return !((t.method === 'manual' || t.method === 'rule') && exists);
   });
   if (!targets.length) return [];
   var now = nowISO_();
@@ -281,9 +285,10 @@ function reclassify_(start, end, onlyUnclassified) {
     BL.applyPayRules(t, meta.accounts);
     var fix = BL.payPatchFor(t, meta.accounts, coverage);
     if (fix) for (var k in fix) t[k] = fix[k];
+    BL.applyRules(t, meta);
     t.classifiedAt = now;
   });
-  var rest = targets.filter(function (t) { return BL.kindOf(t) === 'expense' && !BL.isPayPending(t); });
+  var rest = targets.filter(function (t) { return BL.kindOf(t) === 'expense' && !BL.isPayPending(t) && t.method !== 'rule'; });
   var res = rest.length ? classifyItems_(rest, meta) : [];
   rest.forEach(function (t, i) {
     t.categoryId = res[i].categoryId;

@@ -548,3 +548,52 @@ test('카카오페이 결제내역: 사용처 칸을 사용처로 읽는다', ()
   ]);
 });
 
+
+test('조건 규칙: 계좌·금액·날짜로 이름 없는 입금을 잡는다', () => {
+  const st = L.normalizeState({
+    settings: { startDay: 1 },
+    accounts: [{ id: 'st', name: '주식 계좌', type: 'bank' }, { id: 'kb', name: '카카오뱅크', type: 'bank' }],
+    rules: [
+      { id: 'r1', accountId: 'st', amount: 300000, day: 11, flow: 'in', target: 'transfer' },
+      { id: 'r2', name: '관리비', amount: 150000, flow: 'out', target: 'c-house' },
+      { id: 'bad', target: 'c-food' }, // 이름도 금액도 없으면 버린다
+    ],
+  });
+  assert.deepEqual(st.rules.map((r) => r.id), ['r1', 'r2']);
+  const dep = (date, accountId, amount) => ({ date, accountId, amount, memo: '입금', kind: 'income' });
+  for (const [date, ok] of [['2026-11-11', true], ['2026-11-13', true], ['2026-11-14', false], ['2026-11-09', true]]) {
+    const t = dep(date, 'st', 300000);
+    assert.equal(!!L.applyRules(t, st), ok, date);
+    if (ok) assert.deepEqual([t.kind, t.categoryId], ['transfer', null]);
+  }
+  assert.equal(L.applyRules(dep('2026-11-11', 'kb', 300000), st), null); // 다른 계좌
+  assert.equal(L.applyRules(dep('2026-11-11', 'st', 310000), st), null); // 다른 금액
+  // 31일 규칙은 짧은 달엔 말일, 월말·월초는 이어서 본다
+  const r31 = L.normalizeRule({ id: 'x', amount: 1000, day: 31, target: 'transfer' });
+  assert.equal(L.ruleMatches(r31, { date: '2026-02-28', amount: 1000, kind: 'income' }), true);
+  assert.equal(L.ruleMatches(r31, { date: '2026-03-01', amount: 1000, kind: 'income' }), true);
+  // 항목으로 보내는 규칙
+  const bill = { date: '2026-11-25', amount: 150000, memo: '아파트 관리비', kind: 'expense', categoryId: 'c-food', method: 'ai' };
+  assert.equal(L.applyRules(bill, st).id, 'r2');
+  assert.deepEqual([bill.kind, bill.categoryId, bill.method], ['expense', 'c-house', 'rule']);
+  // 이미 있는 내역 중 직접 고른 것은 건드리지 않는다
+  st.transactions = [{ id: 'a', ...dep('2026-10-12', 'st', 300000) }, { id: 'b', ...dep('2026-09-11', 'st', 300000), method: 'manual' }];
+  assert.deepEqual(L.ruleTargets(st, st.rules[0]).map((t) => t.id), ['a']);
+});
+
+test('내역 검색: 이름 또는 금액', () => {
+  assert.equal(L.parseKoreanAmount('30만'), 300000);
+  assert.equal(L.parseKoreanAmount('3만5천'), 35000);
+  assert.equal(L.parseKoreanAmount('1억 2000만'), 120000000);
+  assert.equal(L.parseKoreanAmount('12,000원'), 12000);
+  assert.equal(L.parseKoreanAmount('스타벅스'), null);
+  const t = { memo: '스타벅스 강남점', amount: 4500 };
+  assert.equal(L.txMatchesSearch(t, '스타벅스'), true);
+  assert.equal(L.txMatchesSearch(t, '4500'), true);
+  assert.equal(L.txMatchesSearch(t, '4,500원'), true);
+  assert.equal(L.txMatchesSearch(t, '450'), true); // 숫자만 쓰면 일부만 맞아도
+  assert.equal(L.txMatchesSearch(t, '5000'), false);
+  assert.equal(L.txMatchesSearch({ memo: '입금', amount: 300000 }, '30만'), true);
+  assert.equal(L.txMatchesSearch({ memo: '입금', amount: 1300000 }, '30만'), false); // 단위를 쓰면 정확히
+  assert.equal(L.txMatchesSearch({ memo: '환불', amount: -4500 }, '4500'), true);
+});

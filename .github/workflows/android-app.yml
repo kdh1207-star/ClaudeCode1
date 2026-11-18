@@ -1,0 +1,59 @@
+name: 가계부 앱 빌드
+
+on:
+  push:
+    paths:
+      - 'android-app/**'
+      - 'docs/**'
+      - '.github/workflows/android-app.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: APK 빌드
+        working-directory: android-app
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+        run: gradle --no-daemon --stacktrace assembleRelease
+
+      - name: 파일 이름 정리
+        run: cp android-app/app/build/outputs/apk/release/app-release.apk budget-app.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: budget-app-apk
+          path: budget-app.apk
+
+      # main 에 올라가면 고정된 다운로드 주소로 공개:
+      # https://github.com/<저장소>/releases/download/budget-app/budget-app.apk
+      # 제목의 "빌드 N" 을 앱이 읽어서 새 버전 안내를 띄운다
+      - name: 다운로드 링크(릴리스) 갱신
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view budget-app > /dev/null 2>&1; then
+            gh release upload budget-app budget-app.apk --clobber
+            gh release edit budget-app --title "가계부 앱 (빌드 ${{ github.run_number }})"
+          else
+            gh release create budget-app budget-app.apk \
+              --title "가계부 앱 (빌드 ${{ github.run_number }})" \
+              --notes "가계부 안드로이드 앱입니다. 휴대폰 크롬에서 budget-app.apk 를 받아 설치하세요. 인터넷 권한만 씁니다." \
+              --latest=false
+          fi

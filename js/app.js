@@ -1506,6 +1506,13 @@
 
   // 설치형 앱(GitHub Pages) 주소. #connect= 뒤에 서버 주소·접속 키를 실어 보낸다 (# 뒤는 서버로 전송되지 않음)
   const PWA_URL = 'https://kdh1207-star.github.io/ClaudeCode1/';
+  // 안드로이드 가계부 앱: 설치돼 있으면 서버 주소·접속 키를 넘기며 열고, 없으면 APK 받기로
+  const APP_APK_URL = 'https://github.com/kdh1207-star/ClaudeCode1/releases/download/budget-app/budget-app.apk';
+  function appConnectLink() {
+    const b64 = pwaLink().split('#connect=')[1];
+    return `intent://connect?d=${b64}#Intent;scheme=budgetapp;package=com.kdh1207.budget;S.browser_fallback_url=${encodeURIComponent(APP_APK_URL)};end`;
+  }
+
   function pwaLink() {
     const json = JSON.stringify({ u: store.serviceUrl, k: store.server.key });
     const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -1529,7 +1536,10 @@
         ${store.server.embedded ? `
         <h3>앱으로 설치 (주소창 없는 화면)</h3>
         <p class="muted small">아래 버튼을 누르면 설치형 앱 화면이 열리고 이 서버 주소·접속 키가 자동으로 연결돼요. 열린 화면에서 크롬 메뉴 <b>⋮ → 홈 화면에 추가(앱 설치)</b>를 누르세요. 화면은 자동으로 최신 버전이 돼요.</p>
-        <div class="row-actions"><a class="primary-btn" target="_blank" rel="noopener" href="${esc(pwaLink())}">앱 화면 열기</a></div>` : ''}
+        <div class="row-actions"><a class="primary-btn" target="_blank" rel="noopener" href="${esc(pwaLink())}">앱 화면 열기</a></div>
+        <h3>안드로이드 앱</h3>
+        <p class="muted small">APK 를 받아 설치한 뒤 <b>설치한 앱에 연결</b>을 누르면 이 서버 주소·접속 키가 앱에 들어가요. 인터넷 권한만 쓰고, 새 버전이 나오면 앱이 알려 줘요. 플레이 스토어 밖 앱이라 삼성 보안 기능(자동 차단)이 설치를 막을 수 있어요.</p>
+        <div class="row-actions"><a class="ghost-btn" target="_blank" rel="noopener" href="${APP_APK_URL}">APK 받기</a><a class="primary-btn" target="_blank" rel="noopener" href="${esc(appConnectLink())}">설치한 앱에 연결</a></div>` : ''}
         <h3>카카오뱅크 문자 자동 입력 (MacroDroid 무료)</h3>
         <ol class="steps">
           <li>플레이 스토어에서 <b>MacroDroid</b> 설치 (Pro 7일 체험 안내는 닫기)</li>

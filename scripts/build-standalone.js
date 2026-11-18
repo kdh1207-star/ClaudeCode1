@@ -43,7 +43,8 @@ function buildCodeGs(html = buildHtml({ pack: true })) {
   ].join('\n');
 }
 
-// 설치형 웹앱(PWA): GitHub Pages(docs/)에서 화면을 주고, 데이터는 Apps Script 서버와 주고받는다
+// 설치형 웹앱(PWA): GitHub Pages(docs/)에서 화면을 주고, 데이터는 Apps Script 서버와 주고받는다.
+// 안드로이드 앱(android-app/)도 이 docs/ 를 앱 안에 넣어 쓴다 (앱 안에서는 서비스 워커를 쓰지 않음)
 function buildPwaHtml() {
   return buildHtml()
     .replace('<meta name="theme-color" content="#f4f4f1">', [
@@ -55,7 +56,7 @@ function buildPwaHtml() {
       '  <meta name="mobile-web-app-capable" content="yes">',
       '  <meta name="apple-mobile-web-app-title" content="가계부">',
     ].join('\n'))
-    .replace('</body>', '<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function () {});</script>\n</body>');
+    .replace('</body>', '<script>if ("serviceWorker" in navigator && location.hostname !== "appassets.androidplatform.net") navigator.serviceWorker.register("sw.js").catch(function () {});</script>\n</body>');
 }
 
 function outputs() {

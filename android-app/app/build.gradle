@@ -1,0 +1,56 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.kdh1207.budget'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.kdh1207.budget'
+        minSdk 26
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName "1.0.${System.getenv('VERSION_CODE') ?: '0'}"
+    }
+
+    // 화면은 GitHub Pages 용으로 만든 docs/ 를 그대로 앱 안에 넣는다 (npm run build 결과)
+    sourceSets {
+        main {
+            assets.srcDirs = ['../../docs']
+        }
+    }
+
+    // 직접 설치하는 개인용 앱이라 알림 연결 앱과 같은 고정 키로 서명한다 (덮어 설치 가능)
+    signingConfigs {
+        stable {
+            storeFile file('../../android/signing/budgetnoti.jks')
+            storePassword 'budgetnoti'
+            keyAlias 'budgetnoti'
+            keyPassword 'budgetnoti'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.stable
+        }
+        debug {
+            signingConfig signingConfigs.stable
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}

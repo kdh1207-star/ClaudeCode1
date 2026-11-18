@@ -366,7 +366,7 @@
       box.classList.add('income-prompt');
       const received = sum.incomeReceived > 0 ? `<button type="button" class="ghost-btn" id="income-received">받은 입금 합계로 (${won(sum.incomeReceived)})</button>` : '';
       box.innerHTML = `
-        <h2>${sum.hasIncome ? '당기 수입(예산) 수정' : '이번 기간에 들어온 돈(예산)을 입력하세요'}</h2>
+        <h2>${sum.hasIncome ? '당기 수입(예산) 수정' : '이번 기간에 들어온 돈(예산)을 입력하세요'} ${helpBtn('income')}</h2>
         <p class="muted small">${fmtDate(currentPeriod.start)} 에 시작하는 기간의 수입입니다. 비율 항목의 한도가 이 금액에 맞춰 계산됩니다.</p>
         <form class="income-form" id="income-form">
           <input type="text" inputmode="numeric" id="income-input" placeholder="예: 3,000,000" value="${sum.hasIncome ? sum.income.toLocaleString('ko-KR') : ''}">
@@ -470,7 +470,7 @@
       const needBase = !f.base;
       return `
       <div class="card note-card">
-        <b>${name} 정산 전 지출 ${won(f.pending)} · ${f.pendingCount}건</b>
+        <b>${name} 정산 전 지출 ${won(f.pending)} · ${f.pendingCount}건</b> ${helpBtn('pay')}
         <p class="small">페이로 옮긴 돈을 일단 미분류 지출로 셉니다.${corr} 결제내역을 가져오면 실제 사용처로 바뀌어요.</p>
         <div class="pay-bal" data-i="${i}">
           ${needBase ? `<label class="small">기준 잔액 (${esc(fmtDate(L.addDays(f.from, -1)))}) <input class="pb-base" inputmode="numeric" placeholder="모르면 비워 두기"></label>` : ''}
@@ -559,14 +559,14 @@
       const status = L.statusOf(ratio);
       hero.innerHTML = `
         ${heroMeta(isCurrent, daysLeft)}
-        <div class="label">LEFT TO SPEND</div>
+        <div class="label">LEFT TO SPEND ${helpBtn('remaining')}</div>
         <div class="figure ${sum.remaining < 0 ? 'negative' : ''}">${won(sum.remaining)}</div>
         <div class="sub">${won(sum.income)} 중 ${won(sum.totalSpent)} 사용 (${sum.income > 0 ? Math.round(ratio * 100) : 0}%)</div>
         <div class="meter ${status}" role="meter" aria-valuemin="0" aria-valuemax="${sum.income}" aria-valuenow="${sum.totalSpent}" aria-label="예산 사용"><div class="meter-fill" style="width:${Math.min(100, ratio * 100)}%"></div></div>`;
     } else {
       hero.innerHTML = `
         ${heroMeta(isCurrent, daysLeft)}
-        <div class="label">SPENT THIS PERIOD</div>
+        <div class="label">SPENT THIS PERIOD ${helpBtn('remaining')}</div>
         <div class="figure">${won(sum.totalSpent)}</div>
         <div class="sub">수입을 입력하면 항목별 한도와 남은 돈을 계산해 드려요.</div>`;
     }
@@ -575,7 +575,7 @@
     $('#home-summary').innerHTML = `
       <div class="kv"><span class="k">이번 기간 지출</span><span class="v">${won(sum.totalSpent)} · ${sum.transactions.length}건</span></div>
       <div class="kv"><span class="k">받은 입금</span><span class="v plus">${sum.incomeReceived ? `+${won(sum.incomeReceived)}` : '—'}</span></div>
-      <div class="kv"><span class="k">하루 권장 사용액</span><span class="v">${perDay}</span></div>
+      <div class="kv"><span class="k">하루 권장 사용액 ${helpBtn('summary')}</span><span class="v">${perDay}</span></div>
       <div class="kv"><span class="k">미분류</span><span class="v">${sum.unclassifiedCount ? `${won(sum.unclassified)} · ${sum.unclassifiedCount}건` : '없음'}</span></div>`;
 
     let note = '';
@@ -1608,8 +1608,8 @@
     if (store.mode === 'remote') {
       const MODEL_LABEL = { 'claude-opus-5-5': 'Claude Opus 5.5 (기본, 가장 정확)', 'claude-haiku-5-5': 'Claude Haiku 5.5 (추천, 아주 저렴)', 'claude-haiku-4-5': 'Claude Haiku 4.5 (예전 모델)' };
       card.innerHTML = `
-        <h2>자동 입력</h2>
-        <h3>Claude AI 분류</h3>
+        <h2>자동 입력 ${helpBtn('auto')}</h2>
+        <h3>Claude AI 분류 ${helpBtn('classify')}</h3>
         <p class="small">${store.aiEnabled ? '<b>켜져 있어요.</b> 알림과 붙여넣은 내역을 AI가 예산 항목에 맞춰 분류합니다.' : '<b>꺼져 있어요.</b> 지금은 키워드로 분류합니다. 아래에 Claude API 키를 넣으면 켜져요. 키는 console.anthropic.com 에서 결제 수단을 등록한 뒤 API Keys 메뉴에서 만들 수 있어요.'}</p>
         <form id="ai-form" class="form-grid">
           <label class="wide">Claude API 키<input type="password" id="ai-key" autocomplete="off" placeholder="${store.aiEnabled ? '저장됨 (바꾸려면 새 키 입력)' : 'sk-ant-…'}"></label>
@@ -1745,10 +1745,131 @@
     else if (page === 'plan') renderPlan();
     else if (page === 'add') renderAdd();
     else if (page === 'settings') renderSettings();
+    addHelpButtons();
     tidyHints();
   }
 
   // 긴 설명 문구는 접어 두고 제목 옆 ⓘ 를 눌러야 보이게 한다 (화면을 가볍게)
+  // ---------- 도움말 (? 버튼 → 작은 설명 창) ----------
+  // 제목 옆 ? 를 누르면 그 기능과 계산 방법을 짧게 보여 준다. 카드의 긴 안내문도 같은 창 아래에 붙인다.
+  const HELP = {
+    remaining: ['남은 돈', `<p><b>남은 돈 = 이번 기간 예산 − 이번 기간 지출</b></p>
+      <ul><li>예산은 이 기간에 쓸 돈으로 직접 넣은 금액이에요. 실제로 들어온 입금과는 따로 계산해요.</li>
+      <li>지출에는 미분류와 카카오페이 정산 전 금액도 들어가요.</li>
+      <li><b>내 계좌 이체</b>와 <b>입금</b>은 지출이 아니라서 빠져요.</li>
+      <li>막대 색: 80% 미만 초록, 80~100% 주의, 100% 넘으면 빨강.</li></ul>`],
+    summary: ['이번 기간 요약', `<ul><li><b>하루 권장 사용액</b> = 남은 돈 ÷ 오늘을 포함한 남은 날 수</li>
+      <li><b>받은 입금</b>: 이 기간 '입금'으로 분류된 돈의 합이에요. 예산과는 별개예요.</li>
+      <li><b>미분류</b>: 항목이 정해지지 않은 지출이에요. 미분류 정리 화면에서 한 번에 고를 수 있어요.</li></ul>`],
+    income: ['기간 예산(수입)', `<p>이 기간에 쓸 돈을 넣어요. 보통 이번 달 월급이에요.</p>
+      <ul><li>기간은 <b>설정 → 기본 → 기간 시작일</b> 기준이에요. 예: 10일이면 10/10~11/9가 한 기간이에요.</li>
+      <li>비율 항목의 한도가 이 금액으로 계산돼요.</li></ul>`],
+    budget: ['항목별 예산', `<ul><li><b>고정 항목</b>: 정한 금액이 그대로 한도예요.</li>
+      <li><b>비율 항목</b>: 기준 금액 × 비율. 기준은 계획 화면에서 고르고, 기본은 '수입 − 고정 항목 합계'예요.</li>
+      <li><b>사용액</b> = 그 항목으로 분류된 이 기간 지출의 합</li>
+      <li>날짜는 그대로 두고 다른 기간으로 옮긴 내역은 옮긴 기간에서 계산해요.</li></ul>`],
+    ratioBase: ['비율 항목의 기준 금액', `<ul><li><b>수입에서 고정 항목을 뺀 나머지</b>: 월세 같은 고정비를 먼저 떼고, 남은 돈을 비율로 나눠요.</li>
+      <li><b>전체 수입</b>: 수입 전체에 비율을 곱해요. 고정 항목과 합치면 100%를 넘을 수 있어요.</li></ul>`],
+    overflow: ['고정 항목이 수입보다 클 때', `<ul><li><b>그대로 두고 알려 주기</b>: 고정 한도는 그대로 두고 경고만 띄워요. 비율 항목은 0원이 돼요.</li>
+      <li><b>비율대로 줄이기</b>: 고정 항목끼리의 비율은 유지하면서, 합계가 수입과 같아지도록 줄여요.</li></ul>`],
+    plan: ['항목별 배분', `<ul><li>계획은 <b>기간마다</b> 저장돼요. 이번 기간에 바꾸면 이번 기간부터 적용되고, 지난 기간 기록과 계획은 그대로 남아요.</li>
+      <li><b>설명</b>은 AI가 분류할 때 참고하고, <b>키워드</b>는 AI를 못 쓸 때 사용처에 그 글자가 있으면 그 항목으로 넣어요.</li></ul>`],
+    classify: ['자동 분류 순서', `<ol><li><b>조건 규칙</b>(계좌·금액·날짜·이름)</li>
+      <li><b>가맹점 규칙</b>(이름이 똑같으면)</li>
+      <li><b>Claude AI</b>(항목 설명과 규칙을 참고)</li>
+      <li><b>키워드</b>(AI를 못 쓸 때)</li></ol>
+      <p>내역에서 직접 고른 항목(<b>직접</b> 표시)은 다시 분류해도 바뀌지 않아요. 카카오페이 정산 전 내역은 AI로 보내지 않아요.</p>`],
+    reclassify: ['다시 분류', `<ul><li><b>미분류만</b>: 항목이 없는 지출만 다시 분류해요.</li>
+      <li><b>이 기간 전체</b>: 직접 고른 것과 규칙으로 정해진 것을 빼고 이 기간 지출을 모두 다시 분류해요. 계획을 바꾼 뒤에 쓰면 좋아요.</li>
+      <li>끝나면 카카오페이 정산도 자동으로 맞춰요.</li></ul>`],
+    search: ['내역 검색', `<ul><li>글자는 사용처 이름에서 찾아요.</li>
+      <li><b>4500</b>처럼 숫자만 쓰면 금액에 그 숫자가 들어간 내역을 찾아요.</li>
+      <li><b>30만</b>, <b>3만5천</b>처럼 단위를 쓰면 정확히 그 금액인 내역을 찾아요.</li>
+      <li>이름(✎)을 누르면 그 내역 하나의 이름을 바꿀 수 있어요.</li>
+      <li>항목 칸에서 고른 것은 그 내역 하나에만 적용돼요. 기간 칸에서는 날짜는 그대로 두고 계산할 기간만 앞뒤로 옮길 수 있어요.</li></ul>`],
+    transfer: ['내 계좌 이체 판정', `<ul><li>문자 알림은 AI가 판정해요. 상대방이 <b>내 이름</b>이거나 상대 계좌가 <b>등록된 내 계좌</b>면 내 계좌 이체예요.</li>
+      <li>저축 계좌나 적금·증권 계좌로 옮긴 돈은 <b>저축/투자 항목 지출</b>로 기록해요.</li>
+      <li>파일 가져오기는 사용처에 내 이름이 있으면 내 계좌 이체예요(카드 결제 제외).</li>
+      <li>이름이 안 찍히는 입금은 <b>조건 규칙</b>으로 잡을 수 있어요.</li></ul>`],
+    pay: ['카카오페이 정산 전', `<ul><li>카카오페이 결제는 문자가 안 와서, 은행에서 카카오페이로 빠져나간 돈을 일단 <b>미분류 지출</b>로 세요.</li>
+      <li><b>결제내역을 가져오면</b> 그 결제내역의 첫 날~마지막 날 사이 출금은 내 계좌 이체로 바뀌고, 실제 사용처로만 세요.</li>
+      <li><b>잔액 보정</b>: 정산 전 지출 − (지금 잔액 − 기준 잔액). 아직 안 쓰고 남은 돈만큼 빼는 거예요.</li></ul>`],
+    sort: ['미분류 정리', `<ul><li>이 기간의 미분류 지출을 <b>같은 사용처끼리 묶어서</b> 보여 줘요. 묶음째로 항목을 고르면 한 번에 정리돼요.</li>
+      <li>고른 항목은 그 내역들에만 적용돼요. <b>규칙도 만들기</b>를 체크하면 앞으로 같은 이름도 자동으로 분류해요.</li>
+      <li>다른 기간에 남은 미분류는 아래에 따로 보여요.</li></ul>`],
+    manual: ['직접 입력', `<p>항목을 <b>자동 분류</b>로 두면 규칙 → AI → 키워드 순서로 정해져요. 결제수단을 고르면 그 계좌·카드 사용액에 들어가요.</p>`],
+    paste: ['내역 붙여넣기', `<p>카드 문자나 내역 여러 줄을 붙여넣으면 날짜·금액·사용처를 읽어요. 이미 있는 내역과 겹치면 '중복?'으로 표시하고 빼 둬요.</p>`],
+    import: ['거래내역 파일 가져오기', `<ul><li>.xlsx와 CSV를 읽어요. 날짜·금액 칸이 있는 표를 스스로 찾아요.</li>
+      <li><b>잠긴 파일</b>은 파일 비밀번호 칸에 저장해 둔 비밀번호로 자동으로 풀어요. 비밀번호는 계좌별로 이 기기에만 저장돼요.</li>
+      <li><b>중복</b>: 같은 날짜·같은 금액에 사용처가 비슷하거나 같은 계좌면 '중복?'으로 빼 둬요.</li>
+      <li>파일의 마지막 잔액이 더 최근이면 계좌 잔액도 바꿔요.</li></ul>`],
+    basics: ['기본 설정', `<ul><li><b>기간 시작일</b>: 한 기간이 시작하는 날. 31일처럼 없는 날은 그 달 말일로 계산해요.</li>
+      <li><b>내 이름</b>: 이체 상대가 내 이름이면 내 계좌 이체로 봐요. 꼭 넣어 두세요.</li>
+      <li><b>테마</b>: 이 기기에서 바로 바뀌어요.</li></ul>`],
+    accounts: ['계좌·카드', `<ul><li><b>끝 4자리</b>로 알림이 어느 계좌·카드 거래인지 찾고, 알림의 잔액으로 계좌 잔액을 바꿔요.</li>
+      <li><b>간편결제 머니</b>(카카오페이): 은행에서 옮긴 돈은 정산 전 지출, 결제내역을 가져오면 실제 사용처로 세요.</li>
+      <li><b>저축</b>을 체크한 계좌로 옮긴 돈은 저축 항목 지출이 되고, 자산에서 저축으로 따로 보여요.</li></ul>`],
+    rules: ['자동 분류 규칙', `<ul><li>규칙은 AI보다 먼저 적용돼요.</li>
+      <li><b>이름만</b> 넣으면 사용처 이름이 똑같은 지출에 적용돼요.</li>
+      <li><b>조건 더하기</b>를 쓰면 계좌·들어온/나간 돈·금액·매달 날짜(앞뒤 2일)가 모두 맞을 때 적용돼요. 이름을 함께 넣으면 그 글자가 들어간 내역만이에요.</li>
+      <li>결과로 <b>내 계좌 이체</b>도 고를 수 있어요. 들어온 돈을 항목으로 보내면 그 금액이 그 항목 지출이 돼요.</li>
+      <li>직접 고른 내역은 규칙이 바꾸지 않아요.</li></ul>`],
+    assets: ['자산', `<ul><li><b>총 자산</b> = 등록한 계좌(카드 제외)의 잔액 합</li>
+      <li>잔액은 은행 알림과 거래내역 파일로 자동으로 바뀌고, 직접 고칠 수도 있어요.</li>
+      <li><b>카드 사용액</b> = 이번 기간 그 카드로 분류된 지출의 합</li></ul>`],
+    report: ['리포트', `<p><b>어디에 썼나요</b>는 이번 기간 지출을 항목별로, <b>기간별 추이</b>는 최근 6개 기간의 예산과 지출을 보여 줘요. 내 계좌 이체와 입금은 빠져요.</p>`],
+    data: ['데이터', `<p><b>백업</b>은 모든 내역·계획·계좌를 파일 하나로 내려받아요. 서버에 연결돼 있으면 데이터는 구글 시트에 저장돼요.</p>`],
+    auto: ['자동 입력 흐름', `<ol><li>카카오뱅크 문자가 오면 <b>MacroDroid</b>가 서버(Apps Script)로 보내요.</li>
+      <li>서버가 <b>Claude AI</b>로 거래 종류·금액·사용처를 읽고 항목을 고르고, 규칙이 있으면 규칙을 따라요.</li>
+      <li>구글 시트 '지출' 탭에 저장되고, 앱을 열면 보여요.</li></ol>
+      <p>AI를 쓸 수 없을 때는 글자 규칙으로 읽고 키워드로 분류해요.</p>`],
+  };
+
+  function helpBtn(key) {
+    return `<button type="button" class="hint-toggle help-btn" data-help="${key}" aria-label="설명 보기">?</button>`;
+  }
+
+  function closeHelp() {
+    const pop = $('#help-pop');
+    if (!pop || pop.hidden) return;
+    pop.hidden = true;
+    $$('.help-btn[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  }
+
+  function openHelp(btn) {
+    const entry = HELP[btn.dataset.help];
+    if (!entry) return;
+    let pop = $('#help-pop');
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.id = 'help-pop';
+      pop.setAttribute('role', 'dialog');
+      document.body.appendChild(pop);
+    }
+    const head = btn.parentElement;
+    const extra = head && head._hint ? `<div class="help-extra">${head._hint.innerHTML}</div>` : '';
+    pop.innerHTML = `<div class="help-head"><b>${entry[0]}</b><button type="button" class="help-close" aria-label="닫기">✕</button></div><div class="help-body">${entry[1]}${extra}</div>`;
+    pop.querySelector('.help-close').addEventListener('click', closeHelp);
+    pop.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    const r = btn.getBoundingClientRect();
+    const w = Math.min(320, window.innerWidth - 24);
+    pop.style.width = `${w}px`;
+    pop.style.left = `${Math.max(12, Math.min(r.left - 16, window.innerWidth - w - 12))}px`;
+    const h = pop.offsetHeight;
+    const below = r.bottom + 8;
+    const top = below + h <= window.innerHeight - 12 ? below : r.top - 8 - h >= 12 ? r.top - 8 - h : Math.max(12, window.innerHeight - h - 12);
+    pop.style.top = `${top}px`;
+  }
+
+  // 정적 제목(data-help)에 ? 를 붙인다. 다시 그리는 곳은 템플릿에서 helpBtn() 으로 붙인다
+  function addHelpButtons() {
+    $$('[data-help]:not(.help-btn)').forEach((el) => {
+      if (el.querySelector(':scope > .help-btn')) return;
+      el.insertAdjacentHTML('beforeend', helpBtn(el.dataset.help));
+    });
+  }
+
   function tidyHints() {
     $$('.content p.muted.small:not([id]):not([data-hint])').forEach((p) => {
       p.dataset.hint = '1';
@@ -1768,12 +1889,36 @@
       let prev = p.previousElementSibling;
       while (prev && !/^H[23]$/.test(prev.tagName) && !prev.classList.contains('card-head')) prev = prev.previousElementSibling;
       const target = prev && (prev.classList.contains('card-head') ? prev.querySelector('h2') : prev);
+      // 제목에 ? 도움말이 있으면 안내문은 그 창 아래에 붙이고 따로 버튼을 만들지 않는다
+      if (target && target.querySelector('.help-btn')) {
+        target._hint = p;
+        return;
+      }
       if (target && !target.querySelector('.hint-toggle')) target.appendChild(btn);
       else p.before(btn);
     });
   }
 
   function bindEvents() {
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('.help-btn');
+      if (b) {
+        e.preventDefault();
+        e.stopPropagation();
+        const same = b.getAttribute('aria-expanded') === 'true';
+        closeHelp();
+        if (!same) openHelp(b);
+        return;
+      }
+      if (!e.target.closest('#help-pop')) closeHelp();
+    }, true);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeHelp();
+    });
+    window.addEventListener('resize', closeHelp);
+    document.addEventListener('scroll', (e) => {
+      if (!e.target.closest || !e.target.closest('#help-pop')) closeHelp();
+    }, true);
     $$('.nav-item[data-page], .bottom-nav [data-page]').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
     $$('[data-goto]').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.goto)));
     $$('[data-open-menu]').forEach((b) => b.addEventListener('click', openMenu));
